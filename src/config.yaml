@@ -13,5 +13,6 @@ model_file: "cnn_001"  # Name des Model-Files
 
 
 # Dataset
-dataset_root: "datasets/object_detection/Type_COCO/Duckiebots/"
-annotation_file: "datasets/object_detection/Type_COCO/Duckiebots/annotations/instances_train.json"
+dataset_root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
+dataset_type: "Type_COCO"  # Typ des Datasets
+#annotation_file: "datasets/object_detection/Type_COCO/Test_Duckiebots/annotations/instances_train.json"

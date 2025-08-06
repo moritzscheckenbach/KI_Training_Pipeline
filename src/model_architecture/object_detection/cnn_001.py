@@ -190,40 +190,11 @@ class SimpleCNN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-class SimpleCNNClassificationOnly(nn.Module):
-    """
-    Simplified version for classification only (if you only need classes)
-    """
 
-    def __init__(self, num_classes=20):
-        super(SimpleCNNClassificationOnly, self).__init__()
+    def get_input_size(self):
 
-        self.features = nn.Sequential(
-            # Block 1
-            nn.Conv2d(3, 32, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            # Block 2
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            # Block 3
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(2),
-            # Block 4
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((7, 7)),
-        )
+        return (self.input_size, self.input_size)
 
-        self.classifier = nn.Sequential(nn.Dropout(0.5), nn.Linear(256 * 7 * 7, 512), nn.ReLU(inplace=True), nn.Dropout(0.5), nn.Linear(512, num_classes))
-
-    def forward(self, x):
-        x = self.features(x)
-        x = x.view(x.size(0), -1)
-        x = self.classifier(x)
-        return x
 
 
 def build_model(num_classes=20, model_type="full"):
@@ -237,10 +208,9 @@ def build_model(num_classes=20, model_type="full"):
     Returns:
         CNN model
     """
-    if model_type == "classification":
-        return SimpleCNNClassificationOnly(num_classes=num_classes)
-    else:
-        return SimpleCNN(num_classes=num_classes)
+    return SimpleCNN(num_classes=num_classes)
+
+  
 
 
 def get_model_info():

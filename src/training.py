@@ -29,6 +29,15 @@ def main():
     learning_rate = config["learning_rate"]
     early_stopping_patience = config["early_stopping"]
     model_name = config.get("model_name", "cnn_001")
+    dataset_root = config["dataset_root"]
+    dataset_type = config["dataset_type"]
+    model_type = config.get("model_type", "object_detection")
+    model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
+    model = model_architecture.build_model()
+    inputsize_x, inputsize_y  = model.get_input_size()
+
+
+
 
     # --- 2. Experiment Ordner in trained_models/object_detection erstellen ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -53,36 +62,38 @@ def main():
     base_transform = augmentation.augment()
 
     
-    # --- 4. Dataset ---
-    dataset_root = r"datasets/object_detection/Type_COCO/Test_Duckiebots/"
+    # --- 4. Datasets ---
 
-    train_dataset = CocoDetection(
-        root=f"{dataset_root}train/",
-        annFile=f"{dataset_root}train/_annotations.coco.json",
-        transform=transforms.Compose([
-            transforms.Resize((416, 416)),
-            base_transform,
-            transforms.ToTensor()  
-        ])
-    )
+    #OPTION COCO
 
-    val_dataset = CocoDetection(
-        root=f"{dataset_root}valid/", 
-        annFile=f"{dataset_root}valid/_annotations.coco.json",
-        transform=transforms.Compose([
-            transforms.Resize((416, 416)),
-            transforms.ToTensor()  
-        ])
-    )
+    if dataset_type == "Type_COCO":
+        train_dataset = CocoDetection(
+            root=f"{dataset_root}train/",
+            annFile=f"{dataset_root}train/_annotations.coco.json",
+            transform=transforms.Compose([
+                transforms.Resize((inputsize_x, inputsize_y)),
+                base_transform,
+                transforms.ToTensor()  
+            ])
+        )
 
-    test_dataset = CocoDetection(
-        root=f"{dataset_root}test/", 
-        annFile=f"{dataset_root}test/_annotations.coco.json",
-        transform=transforms.Compose([
-            transforms.Resize((416, 416)),
-            transforms.ToTensor()  
-        ])
-    )
+        val_dataset = CocoDetection(
+            root=f"{dataset_root}valid/", 
+            annFile=f"{dataset_root}valid/_annotations.coco.json",
+            transform=transforms.Compose([
+                transforms.Resize((inputsize_x, inputsize_y)),
+                transforms.ToTensor()  
+            ])
+        )
+
+        test_dataset = CocoDetection(
+            root=f"{dataset_root}test/", 
+            annFile=f"{dataset_root}test/_annotations.coco.json",
+            transform=transforms.Compose([
+                transforms.Resize((inputsize_x, inputsize_y)),
+                transforms.ToTensor()  
+            ])
+        )
 
     # DataLoader
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
@@ -90,10 +101,8 @@ def main():
     test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
 
     # --- 5. Modell ---
-    model_type = config.get("model_type", "object_detection")
-    model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
-
-    model = model_architecture.build_model()
+ 
+   
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
