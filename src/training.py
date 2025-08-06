@@ -9,7 +9,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
 
 # --- 1. Config laden ---
-with open("./config.yaml", "r") as f:
+with open("config.yaml", "r") as f:
     config = yaml.safe_load(f)
 
 epochs = config["epochs"]
@@ -19,10 +19,10 @@ early_stopping_patience = config["early_stopping"]
 
 # --- 2. Augmentierung importieren ---
 # TODO: Dynamic import based on config
-augmentation_module = config.get("augmentation_file", "object_detection_augmentation")
-augmentation = __import__(f"src.augmentations.{augmentation_module}", fromlist=["get_train_transforms"])
+augmentation_module = config.get("augmentation_file")
+augmentation = __import__(f"augmentations.{augmentation_module}", fromlist=["augment"])
 
-transform = augmentation.get_train_transforms()
+transform = augmentation.augment()
 
 # --- 3. Dataset vorbereiten ---
 # TODO: Method to detect dataset type from path
@@ -32,9 +32,11 @@ dataset = CocoDetection(root="datasets/object_detection/Type_COCO/Duckiebots/", 
 dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=4)
 
 # --- 4. Modell importieren ---
-from model_architecture.object_detection import cnn_001
+model_type = config.get("model_type", "object_detection")
+model_name = config.get("model_name", "cnn_001")
+model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
 
-model = cnn_001.build_model()
+model = model_architecture.build_model()
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model.to(device)
