@@ -1,0 +1,16 @@
+best_val_loss: 146.93954849243164
+config:
+  annotation_file: datasets/object_detection/Type_COCO/Duckiebots/annotations/instances_train.json
+  augmentation_file: augmentation_1
+  batch_size: 16
+  dataset_root: datasets/object_detection/Type_COCO/Duckiebots/
+  early_stopping: 10
+  epochs: 10
+  learning_rate: 0.001
+  model_file: cnn_001
+  model_type_file: object_detection
+experiment_name: cnn_001_20250806_151823
+model_architecture: cnn_001
+test_loss: 221.8681640625
+timestamp: '20250806_151823'
+total_epochs: 10

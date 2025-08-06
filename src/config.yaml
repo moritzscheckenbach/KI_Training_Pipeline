@@ -1,5 +1,5 @@
 # Training parameters
-epochs: 100
+epochs: 10
 batch_size: 16
 learning_rate: 0.001
 early_stopping: 10
@@ -8,8 +8,8 @@ early_stopping: 10
 augmentation_file: "augmentation_1"  # Name des Augmentierungs-Files
 
 # Model
-model_type: "object_detection"
-model_name: "cnn_001"
+model_type_file: "object_detection"  # Neu hinzufügen
+model_file: "cnn_001"  # Name des Model-Files
 
 
 # Dataset
