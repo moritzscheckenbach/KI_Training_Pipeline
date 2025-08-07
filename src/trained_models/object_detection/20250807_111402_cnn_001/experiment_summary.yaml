@@ -1,0 +1,16 @@
+best_val_loss: 1.3176395738390134e-11
+config:
+  augmentation_file: augmentation_1
+  batch_size: 16
+  dataset_root: datasets/object_detection/Type_YOLO/Test_Duckiebots_YOLO11/
+  dataset_type: Type_YOLO
+  early_stopping: 10
+  epochs: 5
+  learning_rate: 0.001
+  model_file: cnn_001
+  model_type_file: object_detection
+experiment_name: 20250807_111402_cnn_001
+model_architecture: cnn_001
+test_loss: 1.350078382422737e-11
+timestamp: '20250807_111402'
+total_epochs: 5

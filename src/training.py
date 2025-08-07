@@ -12,13 +12,27 @@ import torchvision.transforms as transforms
 from utils.YOLO_Dataset_Loader import YoloDataset
 
 def collate_fn(batch):
-    # Filtere Samples ohne Annotations
-    filtered_batch = [(img, target) for img, target in batch if len(target) > 0]
+    """Füllt leere Annotations mit Nullen statt sie zu filtern"""
+    images = []
+    targets = []
     
-    if len(filtered_batch) == 0:
+    for img, target in batch:
+        if img is None:
+            continue
+            
+        images.append(img)
+        
+        # Statt filtern: leere targets beibehalten  
+        if target is None or len(target) == 0:
+            targets.append([])
+        else:
+            targets.append(target)
+    
+    if len(images) == 0:
         return None, None
-    
-    return tuple(zip(*filtered_batch))
+        
+    # Behalte das gleiche Format wie vorher
+    return (tuple(images), tuple(targets))
 
 def main():
     # --- 1. Config laden ---
@@ -164,12 +178,18 @@ def main():
             
             processed_targets = []
             for target_list in targets:
-                if isinstance(target_list, list):
+                if isinstance(target_list, list) and len(target_list) > 0:  # ← Füge "and len(target_list) > 0" hinzu
                     target_dict = {
                         'boxes': torch.stack([torch.tensor(ann['bbox']) for ann in target_list]),
                         'labels': torch.tensor([ann['category_id'] for ann in target_list])
                     }
                     processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
+                else:  # ← Füge diesen else-Block hinzu
+                    # Leere targets
+                    processed_targets.append({
+                        'boxes': torch.empty((0, 4), device=device),
+                        'labels': torch.empty((0,), dtype=torch.long, device=device)
+                    })
             
             optimizer.zero_grad()
             loss_dict = model(images, processed_targets)
@@ -195,12 +215,18 @@ def main():
                 
                 processed_targets = []
                 for target_list in targets:
-                    if isinstance(target_list, list):
+                    if isinstance(target_list, list) and len(target_list) > 0:  # ← Füge "and len(target_list) > 0" hinzu
                         target_dict = {
                             'boxes': torch.stack([torch.tensor(ann['bbox']) for ann in target_list]),
                             'labels': torch.tensor([ann['category_id'] for ann in target_list])
                         }
                         processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
+                    else:  # ← Füge diesen else-Block hinzu
+                        # Leere targets
+                        processed_targets.append({
+                            'boxes': torch.empty((0, 4), device=device),
+                            'labels': torch.empty((0,), dtype=torch.long, device=device)
+                        })
                 
                 loss_dict = model(images, processed_targets)
                 losses = sum(loss for loss in loss_dict.values())
@@ -217,7 +243,12 @@ def main():
         # Einzelne Loss-Komponenten
         if isinstance(loss_dict, dict):
             for loss_name, loss_value in loss_dict.items():
-                writer.add_scalar(f"Loss_Components/{loss_name}", loss_value.item(), epoch)
+                # Convert to float regardless of type
+                if isinstance(loss_value, torch.Tensor):
+                    scalar_value = loss_value.item()
+                else:
+                    scalar_value = float(loss_value)
+                writer.add_scalar(f"Loss_Components/{loss_name}", scalar_value, epoch)
         
         # Model Checkpointing
         if avg_val_loss < best_val_loss:
@@ -268,12 +299,18 @@ def main():
             
             processed_targets = []
             for target_list in targets:
-                if isinstance(target_list, list):
+                if isinstance(target_list, list) and len(target_list) > 0:  # ← Füge "and len(target_list) > 0" hinzu
                     target_dict = {
                         'boxes': torch.stack([torch.tensor(ann['bbox']) for ann in target_list]),
                         'labels': torch.tensor([ann['category_id'] for ann in target_list])
                     }
                     processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
+                else:  # ← Füge diesen else-Block hinzu
+                    # Leere targets
+                    processed_targets.append({
+                        'boxes': torch.empty((0, 4), device=device),
+                        'labels': torch.empty((0,), dtype=torch.long, device=device)
+                    })
             
             loss_dict = model(images, processed_targets)
             losses = sum(loss for loss in loss_dict.values())
