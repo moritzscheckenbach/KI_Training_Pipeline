@@ -9,6 +9,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
 import torchvision.transforms as transforms
+from utils.YOLO_Dataset_Loader import YoloDataset
 
 def collate_fn(batch):
     # Filtere Samples ohne Annotations
@@ -28,10 +29,10 @@ def main():
     batch_size = config["batch_size"]
     learning_rate = config["learning_rate"]
     early_stopping_patience = config["early_stopping"]
-    model_name = config.get("model_name", "cnn_001")
+    model_name = config["model_file"]
     dataset_root = config["dataset_root"]
     dataset_type = config["dataset_type"]
-    model_type = config.get("model_type", "object_detection")
+    model_type = config["model_type_file"]
     model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
     model = model_architecture.build_model()
     inputsize_x, inputsize_y  = model.get_input_size()
@@ -41,8 +42,8 @@ def main():
 
     # --- 2. Experiment Ordner in trained_models/object_detection erstellen ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_name = f"{model_name}_{timestamp}"
-    experiment_dir = f"trained_models/object_detection/{experiment_name}"
+    experiment_name = f"{timestamp}_{model_name}"
+    experiment_dir = f"trained_models/{model_type}/{experiment_name}"
     
     # Ordnerstruktur erstellen
     os.makedirs(experiment_dir, exist_ok=True)
@@ -94,6 +95,40 @@ def main():
                 transforms.ToTensor()  
             ])
         )
+
+    #OPTION YOLO
+    if dataset_type == "Type_YOLO":
+        transform_train = transforms.Compose([
+            transforms.Resize((inputsize_x, inputsize_y)),
+            base_transform,
+            transforms.ToTensor()
+        ])
+
+        transform_val_test = transforms.Compose([
+            transforms.Resize((inputsize_x, inputsize_y)),
+            transforms.ToTensor()
+        ])
+
+        train_dataset = YoloDataset(
+            images_dir=f"{dataset_root}train/images/",
+            labels_dir=f"{dataset_root}train/labels/",
+            transform=transform_train
+        )
+
+        val_dataset = YoloDataset(
+            images_dir=f"{dataset_root}valid/images/",
+            labels_dir=f"{dataset_root}valid/labels/",
+            transform=transform_val_test
+        )
+
+        test_dataset = YoloDataset(
+            images_dir=f"{dataset_root}test/images/",
+            labels_dir=f"{dataset_root}test/labels/",
+            transform=transform_val_test
+        )
+
+
+
 
     # DataLoader
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
