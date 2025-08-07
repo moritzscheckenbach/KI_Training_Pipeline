@@ -1,8 +1,8 @@
 
-without background bots _ Object detection duckie - v1 2025-08-05 2:07pm
+without background bots _ Object detection duckie_BBox - v1 Roboflow Instant 1 [Eval]
 ==============================
 
-This dataset was exported via roboflow.com on August 7, 2025 at 7:59 AM GMT
+This dataset was exported via roboflow.com on August 7, 2025 at 8:40 AM GMT
 
 Roboflow is an end-to-end computer vision platform that helps you
 * collaborate with your team on computer vision projects
@@ -18,9 +18,10 @@ visit https://github.com/roboflow/notebooks
 To find over 100k other datasets and pre-trained models, visit https://universe.roboflow.com
 
 The dataset includes 116 images.
-Obstacles-KFD3 are annotated in YOLOv11 format.
+Obstacles-KFD3-zGin are annotated in YOLOv11 format.
 
 The following pre-processing was applied to each image:
+* Auto-orientation of pixel data (with EXIF-orientation stripping)
 
 No image augmentation techniques were applied.
 
