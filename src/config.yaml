@@ -4,12 +4,23 @@ batch_size: 16
 learning_rate: 0.001
 early_stopping: 10
 
+# dropout rate
+# seed (für zufallsprozesse zentral)
+#scheduler: (evtl weight decay)
+#optimizer: (adam, sgd, ...)
+# hydra für yaml
+
+#logger hinzufügen (loguru)
+
+#ImageNet classifizierung
+#pytorch timm hat pretrained transformer
+
 # Augmentation
 augmentation_file: "augmentation_1"  # Name des Augmentierungs-Files
 
 # Model
 model_type_file: "object_detection"  # Neu hinzufügen
-model_file: "cnn_001"  # Name des Model-Files
+model_file: "ResNet50"  # Name des Model-Files
 
 
 # Dataset

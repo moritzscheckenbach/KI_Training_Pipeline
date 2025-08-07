@@ -190,10 +190,11 @@ class SimpleCNN(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
 
-
+    #@property
     def get_input_size(self):
 
         return (self.input_size, self.input_size)
+    #property machen
 
 
 
