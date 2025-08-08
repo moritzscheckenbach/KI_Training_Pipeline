@@ -8,6 +8,7 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
 import torchvision.transforms as transforms
+from loguru import logger
 from utils.YOLO_Dataset_Loader import YoloDataset
 
 def collate_fn(batch):
@@ -49,34 +50,15 @@ def main():
     if use_transfer_learning:
         model_name = "transferlearning"
         model_type = config["model_type_file"]
-        print("🔄 Using Transfer Learning Mode")
+        logger.info("🔄 Using Transfer Learning Mode")
     else:
         model_name = config["model_file"]
         model_type = config["model_type_file"]
-        print("🆕 Using Fresh Training Mode")
+        logger.info("🆕 Using Fresh Training Mode")
     
     dataset_root = config["dataset_root"]
     dataset_type = config["dataset_type"]
     
-    # Model laden (mit Config für Transfer Learning)
-    try:
-        if use_transfer_learning:
-            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
-            model = model_architecture.build_model(config)  # Config muss übergeben werden!
-        else:
-            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
-            model = model_architecture.build_model()
-    except ImportError as e:
-        print(f"❌ Error loading model architecture: {e}")
-        print(f"Looking for: model_architecture.{model_type}.{model_name}")
-        raise
-    except Exception as e:
-        print(f"❌ Error building model: {e}")
-        raise
-    
-    inputsize_x, inputsize_y = model.get_input_size()
-    seed = config["seed"]
-
     # --- 2. Experiment Ordner ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     if use_transfer_learning:
@@ -93,20 +75,68 @@ def main():
     os.makedirs(f"{experiment_dir}/tensorboard", exist_ok=True)
     os.makedirs(f"{experiment_dir}/configs", exist_ok=True)
     
+    # --- 2.1. Loguru Setup ---
+    # Entferne alle existierenden Handler
+    logger.remove()
+    
+    # Console Handler
+    logger.add(
+        lambda msg: print(msg, end=""),
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
+        level="INFO",
+        colorize=True
+    )
+    
+    # File Handler
+    log_file_path = f"{experiment_dir}/training.log"
+    logger.add(
+        log_file_path,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
+        level="DEBUG",
+        rotation="100 MB",
+        retention="10 days"
+    )
+    
     # Config kopieren
     shutil.copy("config.yaml", f"{experiment_dir}/configs/config.yaml")
     
-    print(f"🚀 Starting experiment: {experiment_name}")
-    print(f"📁 Experiment directory: {experiment_dir}")
+    logger.info(f"🚀 Starting experiment: {experiment_name}")
+    logger.info(f"📁 Experiment directory: {experiment_dir}")
+    logger.info(f"📝 Log file: {log_file_path}")
+    
+    # Model laden (mit Config für Transfer Learning)
+    try:
+        if use_transfer_learning:
+            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
+            model = model_architecture.build_model(config)  # Config muss übergeben werden!
+            logger.info("✅ Transfer learning model loaded successfully")
+        else:
+            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
+            model = model_architecture.build_model()
+            logger.info("✅ Fresh model loaded successfully")
+    except ImportError as e:
+        logger.error(f"❌ Error loading model architecture: {e}")
+        logger.error(f"Looking for: model_architecture.{model_type}.{model_name}")
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error building model: {e}")
+        raise
+    
+    inputsize_x, inputsize_y = model.get_input_size()
+    seed = config["seed"]
+    logger.info(f"📐 Model input size: {inputsize_x}x{inputsize_y}")
 
     # --- 3. Augmentierung + Resize kombinieren ---
     augmentation_module = config.get("augmentation_file")
     augmentation = __import__(f"augmentations.{augmentation_module}", fromlist=["augment"])
     base_transform = augmentation.augment()
+    logger.info(f"🔄 Using augmentation: {augmentation_module}")
 
     
     # --- 4. Datasets ---
 
+    logger.info(f"📊 Loading {dataset_type} dataset from: {dataset_root}")
+    
     #OPTION COCO
 
     if dataset_type == "Type_COCO":
@@ -169,8 +199,7 @@ def main():
             transform=transform_val_test
         )
 
-
-
+    logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
     # DataLoader
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
@@ -182,6 +211,7 @@ def main():
    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
+    logger.info(f"🖥️ Using device: {device}")
 
     # --- 6. Optimizer Setup mit Transfer Learning Support ---
     if use_transfer_learning and "backbone_lr_multiplier" in config["transfer_learning"]:
@@ -226,13 +256,13 @@ def main():
         optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
         optimizer = optimizer_lib.get_optimizer(param_groups, config)
         
-        print(f"🔧 Using Transfer Learning Optimizer:")
-        print(f"   Backbone LR: {backbone_lr}")
-        print(f"   Head LR: {head_lr}")
+        logger.info(f"🔧 Using Transfer Learning Optimizer:")
+        logger.info(f"   Backbone LR: {backbone_lr}")
+        logger.info(f"   Head LR: {head_lr}")
     else:
         optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
         optimizer = optimizer_lib.get_optimizer(model.parameters(), config)
-        print(f"🔧 Using optimizer: {config.get('optimizer_type', 'Unknown')}")
+        logger.info(f"🔧 Using optimizer: {config.get('optimizer_type', 'Unknown')}")
     
     # --- 6.1. Scheduler Setup ---
     scheduler_module = config.get("scheduler_file")
@@ -240,20 +270,27 @@ def main():
         scheduler_lib = __import__(f"utils.{scheduler_module}", fromlist=["get_scheduler"])
         scheduler = scheduler_lib.get_scheduler(optimizer, config)
         use_scheduler = True
-        print(f"📅 Using scheduler: {config.get('scheduler_type', 'Unknown')}")
+        logger.info(f"📅 Using scheduler: {config.get('scheduler_type', 'Unknown')}")
     else:
         scheduler = None
         use_scheduler = False
-        print("📅 No scheduler configured")
+        logger.info("📅 No scheduler configured")
 
     # --- 7. TensorBoard (in trained_models directory) ---
     writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
+    logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
 
     # --- 8. Training Loop ---
     best_val_loss = float("inf")
     patience_counter = 0
 
+    logger.info(f"🎯 Starting training loop for {epochs} epochs")
+    logger.info(f"⚙️ Batch size: {batch_size}, Learning rate: {learning_rate}")
+    logger.info(f"⏰ Early stopping patience: {early_stopping_patience}")
+
     for epoch in range(epochs):
+        logger.info(f"📈 Epoch {epoch+1}/{epochs}")
+        
         # Training Phase
         model.train()
         train_loss = 0.0
@@ -287,6 +324,10 @@ def main():
             optimizer.step()
             
             train_loss += losses.item()
+            
+            # Log every 100 batches
+            if (i + 1) % 100 == 0:
+                logger.debug(f"   Batch {i+1}/{len(train_dataloader)}, Loss: {losses.item():.4f}")
         
         avg_train_loss = train_loss / len(train_dataloader)
         
@@ -322,7 +363,7 @@ def main():
         
         avg_val_loss = val_loss / len(val_dataloader)
         
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        logger.info(f"   Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
         
         # --- Scheduler Step ---
         if use_scheduler:
@@ -336,7 +377,7 @@ def main():
             # Log current learning rate
             current_lr = optimizer.param_groups[0]['lr']
             writer.add_scalar("Learning_Rate", current_lr, epoch)
-            print(f"Current Learning Rate: {current_lr:.6f}")
+            logger.debug(f"   Current Learning Rate: {current_lr:.6f}")
         
         # TensorBoard Logging
         writer.add_scalar("Loss/Train", avg_train_loss, epoch)
@@ -367,11 +408,12 @@ def main():
                 'config': config
             }, f"{experiment_dir}/models/best_model.pth")
             
-            print(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
+            logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
         else:
             patience_counter += 1
+            logger.debug(f"   Patience counter: {patience_counter}/{early_stopping_patience}")
             if patience_counter >= early_stopping_patience:
-                print("⏹️ Early stopping triggered.")
+                logger.warning("⏹️ Early stopping triggered.")
                 break
         
         # Speichere auch letztes Model
@@ -385,7 +427,7 @@ def main():
         }, f"{experiment_dir}/models/last_model.pth")
 
     # --- 9. Test Evaluation ---
-    print("\n🧪 --- Test Evaluation ---")
+    logger.info("🧪 Starting test evaluation")
     
     checkpoint = torch.load(f"{experiment_dir}/models/best_model.pth")
     model.load_state_dict(checkpoint['model_state_dict'])
@@ -419,7 +461,7 @@ def main():
             test_loss += losses.item()
     
     avg_test_loss = test_loss / len(test_dataloader)
-    print(f"Test Loss: {avg_test_loss:.4f}")
+    logger.info(f"🧪 Test Loss: {avg_test_loss:.4f}")
     
     writer.add_scalar("Test/Loss", avg_test_loss, epochs)
     
@@ -439,11 +481,12 @@ def main():
     
     writer.close()
     
-    print(f"\n✅ Training completed!")
-    print(f"📁 Results saved in: {experiment_dir}")
-    print(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
-    print(f"📊 TensorBoard: tensorboard --logdir={experiment_dir}/tensorboard")
-    print(f"📋 Summary: {experiment_dir}/experiment_summary.yaml")
+    logger.success(f"✅ Training completed!")
+    logger.info(f"📁 Results saved in: {experiment_dir}")
+    logger.info(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
+    logger.info(f"📊 TensorBoard: tensorboard --logdir={experiment_dir}/tensorboard")
+    logger.info(f"📋 Summary: {experiment_dir}/experiment_summary.yaml")
+    logger.info(f"📝 Training log: {log_file_path}")
 
 if __name__ == "__main__":
     main()
