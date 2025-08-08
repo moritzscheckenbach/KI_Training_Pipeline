@@ -4,12 +4,25 @@ batch_size: 16
 learning_rate: 0.001
 early_stopping: 10
 
-# dropout rate
-# seed (für zufallsprozesse zentral)
-#scheduler: (evtl weight decay)
-#optimizer: (adam, sgd, ...)
-# hydra für yaml
+# Scheduler parameters
+scheduler_file: "scheduler"
+scheduler_type: "ReduceLROnPlateau"  # StepLR, MultiStepLR, ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau
+scheduler_patience: 5  # Für ReduceLROnPlateau
+scheduler_factor: 0.5  # Faktor um den LR reduziert wird
+scheduler_min_lr: 1e-6  # Minimum learning rate
 
+# Optimizer parameters
+optimizer_type: "AdamW"  # Adam, AdamW, SGD, RMSprop, Adagrad, Adadelta
+optimizer_weight_decay: 0.01  # L2 regularization
+optimizer_betas: [0.9, 0.999]  # Für Adam/AdamW
+optimizer_momentum: 0.9  # Für SGD
+
+
+# dropout rate
+seed: 1234
+
+
+# hydra für yaml
 #logger hinzufügen (loguru)
 
 #ImageNet classifizierung

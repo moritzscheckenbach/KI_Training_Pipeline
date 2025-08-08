@@ -1,7 +1,6 @@
 import os
 import torch
 import torch.nn as nn
-import torch.optim as optim
 import yaml
 import shutil
 from datetime import datetime
@@ -50,9 +49,7 @@ def main():
     model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
     model = model_architecture.build_model()
     inputsize_x, inputsize_y  = model.get_input_size()
-
-
-
+    seed = config["seed"]
 
     # --- 2. Experiment Ordner in trained_models/object_detection erstellen ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -155,8 +152,22 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # --- 6. Training Setup ---
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    # --- 6. Optimizer Setup ---
+    optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
+    optimizer = optimizer_lib.get_optimizer(model.parameters(), config)
+    print(f"🔧 Using optimizer: {config.get('optimizer_type', 'Unknown')}")
+    
+    # --- 6.1. Scheduler Setup ---
+    scheduler_module = config.get("scheduler_file")
+    if scheduler_module:
+        scheduler_lib = __import__(f"utils.{scheduler_module}", fromlist=["get_scheduler"])
+        scheduler = scheduler_lib.get_scheduler(optimizer, config)
+        use_scheduler = True
+        print(f"📅 Using scheduler: {config.get('scheduler_type', 'Unknown')}")
+    else:
+        scheduler = None
+        use_scheduler = False
+        print("📅 No scheduler configured")
 
     # --- 7. TensorBoard (in trained_models directory) ---
     writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
@@ -235,6 +246,20 @@ def main():
         avg_val_loss = val_loss / len(val_dataloader)
         
         print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        
+        # --- Scheduler Step ---
+        if use_scheduler:
+            if config.get("scheduler_type") == "ReduceLROnPlateau":
+                # ReduceLROnPlateau braucht die Metric (val_loss)
+                scheduler.step(avg_val_loss)
+            else:
+                # Andere Scheduler brauchen nur step()
+                scheduler.step()
+            
+            # Log current learning rate
+            current_lr = optimizer.param_groups[0]['lr']
+            writer.add_scalar("Learning_Rate", current_lr, epoch)
+            print(f"Current Learning Rate: {current_lr:.6f}")
         
         # TensorBoard Logging
         writer.add_scalar("Loss/Train", avg_train_loss, epoch)
