@@ -39,4 +39,30 @@ model_file: "ResNet50"  # Name des Model-Files
 # Dataset
 dataset_root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
 dataset_type: "Type_COCO"  # Typ des Datasets
-#annotation_file: "datasets/object_detection/Type_COCO/Test_Duckiebots/annotations/instances_train.json"
+
+
+
+# Transfer Learning Configuration
+transfer_learning:
+  enabled: true  # Ob Transfer Learning verwendet werden soll
+  pretrained_model_path: "trained_models/object_detection/20250808_095238_ResNet50/models/best_model.pth"
+  base_model_type: "object_detection"  # Typ des Base Models
+  base_model_file: "ResNet50"  # Name des Base Model Files
+  
+  # Transfer Learning Strategy
+  strategy: "freeze_all_except_head"  # freeze_all_except_head, freeze_early_layers, freeze_backbone, unfreeze_all, custom_freeze
+  
+  # Für freeze_early_layers Strategy
+  freeze_until_layer: 6
+  
+  # Für custom_freeze Strategy
+  freeze_layers: ["backbone.layer1", "backbone.layer2"]
+  unfreeze_layers: ["detection_head", "backbone.layer4"]
+  
+  # Learning Rate für verschiedene Teile
+  backbone_lr_multiplier: 0.1  # Kleinere LR für Backbone
+  head_lr_multiplier: 1.0      # Normale LR für Head
+
+# Model Configuration - wird überschrieben wenn Transfer Learning enabled
+trans_model_type_file: "object_detection"
+trans_model_file: "transferlearning"  # Verwendet Transfer Learning Wrapper
