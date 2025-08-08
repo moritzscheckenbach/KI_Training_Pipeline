@@ -42,18 +42,49 @@ def main():
     batch_size = config["batch_size"]
     learning_rate = config["learning_rate"]
     early_stopping_patience = config["early_stopping"]
-    model_name = config["model_file"]
+    
+    # Transfer Learning Check
+    use_transfer_learning = config.get("transfer_learning", {}).get("enabled", False)
+    
+    if use_transfer_learning:
+        model_name = "transferlearning"
+        model_type = config["model_type_file"]
+        print("🔄 Using Transfer Learning Mode")
+    else:
+        model_name = config["model_file"]
+        model_type = config["model_type_file"]
+        print("🆕 Using Fresh Training Mode")
+    
     dataset_root = config["dataset_root"]
     dataset_type = config["dataset_type"]
-    model_type = config["model_type_file"]
-    model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
-    model = model_architecture.build_model()
-    inputsize_x, inputsize_y  = model.get_input_size()
+    
+    # Model laden (mit Config für Transfer Learning)
+    try:
+        if use_transfer_learning:
+            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
+            model = model_architecture.build_model(config)  # Config muss übergeben werden!
+        else:
+            model_architecture = __import__(f"model_architecture.{model_type}.{model_name}", fromlist=["build_model"])
+            model = model_architecture.build_model()
+    except ImportError as e:
+        print(f"❌ Error loading model architecture: {e}")
+        print(f"Looking for: model_architecture.{model_type}.{model_name}")
+        raise
+    except Exception as e:
+        print(f"❌ Error building model: {e}")
+        raise
+    
+    inputsize_x, inputsize_y = model.get_input_size()
     seed = config["seed"]
 
-    # --- 2. Experiment Ordner in trained_models/object_detection erstellen ---
+    # --- 2. Experiment Ordner ---
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_name = f"{timestamp}_{model_name}"
+    if use_transfer_learning:
+        base_model_name = config["transfer_learning"]["base_model_file"]
+        experiment_name = f"{timestamp}_{base_model_name}_transfer"
+    else:
+        experiment_name = f"{timestamp}_{model_name}"
+    
     experiment_dir = f"trained_models/{model_type}/{experiment_name}"
     
     # Ordnerstruktur erstellen
@@ -152,10 +183,56 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # --- 6. Optimizer Setup ---
-    optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
-    optimizer = optimizer_lib.get_optimizer(model.parameters(), config)
-    print(f"🔧 Using optimizer: {config.get('optimizer_type', 'Unknown')}")
+    # --- 6. Optimizer Setup mit Transfer Learning Support ---
+    if use_transfer_learning and "backbone_lr_multiplier" in config["transfer_learning"]:
+        # Verschiedene Learning Rates für verschiedene Teile
+        backbone_lr = learning_rate * config["transfer_learning"]["backbone_lr_multiplier"]
+        head_lr = learning_rate * config["transfer_learning"]["head_lr_multiplier"]
+        
+        param_groups = []
+        
+        # Backbone Parameter
+        if hasattr(model.base_model, 'backbone'):
+            param_groups.append({
+                'params': model.base_model.backbone.parameters(),
+                'lr': backbone_lr,
+                'name': 'backbone'
+            })
+        
+        # Detection Head Parameter
+        if hasattr(model.base_model, 'detection_head'):
+            param_groups.append({
+                'params': model.base_model.detection_head.parameters(),
+                'lr': head_lr,
+                'name': 'detection_head'
+            })
+        
+        # Fallback für andere Parameter
+        other_params = []
+        backbone_params = set(model.base_model.backbone.parameters()) if hasattr(model.base_model, 'backbone') else set()
+        head_params = set(model.base_model.detection_head.parameters()) if hasattr(model.base_model, 'detection_head') else set()
+        
+        for param in model.parameters():
+            if param not in backbone_params and param not in head_params:
+                other_params.append(param)
+        
+        if other_params:
+            param_groups.append({
+                'params': other_params,
+                'lr': learning_rate,
+                'name': 'other'
+            })
+        
+        optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
+        optimizer = optimizer_lib.get_optimizer(param_groups, config)
+        
+        print(f"🔧 Using Transfer Learning Optimizer:")
+        print(f"   Backbone LR: {backbone_lr}")
+        print(f"   Head LR: {head_lr}")
+    else:
+        optimizer_lib = __import__(f"utils.optimizer", fromlist=["get_optimizer"])
+        optimizer = optimizer_lib.get_optimizer(model.parameters(), config)
+        print(f"🔧 Using optimizer: {config.get('optimizer_type', 'Unknown')}")
     
     # --- 6.1. Scheduler Setup ---
     scheduler_module = config.get("scheduler_file")
