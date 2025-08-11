@@ -33,7 +33,7 @@ augmentation_file: "augmentation_1"  # Name des Augmentierungs-Files
 
 # Model
 model_type_file: "object_detection"  # Neu hinzufügen
-model_file: "ResNet50"  # Name des Model-Files
+model_file: "swin_tiny_patch4_window7_224"  # Name des Model-Files
 
 
 # Dataset
@@ -44,7 +44,7 @@ dataset_type: "Type_COCO"  # Typ des Datasets
 
 # Transfer Learning Configuration
 transfer_learning:
-  enabled: true  # Ob Transfer Learning verwendet werden soll
+  enabled: false  # Ob Transfer Learning verwendet werden soll
   pretrained_model_path: "trained_models/object_detection/20250808_095238_ResNet50/models/best_model.pth"
   base_model_type: "object_detection"  # Typ des Base Models
   base_model_file: "ResNet50"  # Name des Base Model Files
