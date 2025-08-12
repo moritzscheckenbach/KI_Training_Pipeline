@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
 import yaml
+from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
@@ -68,7 +69,8 @@ def train(cfg: DictConfig):
     log_file_path = f"{experiment_dir}/training.log"
     logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="DEBUG", rotation="100 MB", retention="10 days")
 
-    shutil.copy("conf/config.yaml", f"{experiment_dir}/configs/config.yaml")
+    src = to_absolute_path("conf/config.yaml")
+    shutil.copy(src, os.path.join(experiment_dir, "configs", "config.yaml"))
 
     logger.info(f"🚀 Starting experiment: {experiment_name}")
     logger.info(f"📁 Experiment directory: {experiment_dir}")
@@ -148,10 +150,11 @@ def train(cfg: DictConfig):
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
-    clear_gpu_cache()
     logger.info(f"🖥️ Using device: {device}")
-    logger.info(f"💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB total")
-    logger.info(f"💾 GPU Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    if torch.cuda.is_available():
+        clear_gpu_cache()
+        logger.info(f"💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB total")
+        logger.info(f"💾 GPU Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
     # =============================================================================
     # 7. OPTIMIZER SETUP
@@ -312,6 +315,12 @@ def train(cfg: DictConfig):
                     scalar_value = float(loss_value)
                 writer.add_scalar(f"Loss_Components/{loss_name}", scalar_value, epoch)
 
+        # Speichere auch letztes Model
+        torch.save(
+            {"epoch": epoch, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "train_loss": avg_train_loss, "val_loss": avg_val_loss, "config": cfg},
+            f"{experiment_dir}/models/last_model.pth",
+        )
+
         # Model Checkpointing
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
@@ -336,12 +345,6 @@ def train(cfg: DictConfig):
             if patience_counter >= cfg.training.early_stopping_patience:
                 logger.warning("⏹️ Early stopping triggered.")
                 break
-
-        # Speichere auch letztes Model
-        torch.save(
-            {"epoch": epoch, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "train_loss": avg_train_loss, "val_loss": avg_val_loss, "config": cfg},
-            f"{experiment_dir}/models/last_model.pth",
-        )
 
     # =============================================================================
     # 11. TEST EVALUATION
