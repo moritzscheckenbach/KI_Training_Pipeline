@@ -124,7 +124,7 @@ class TransferLearningModel(nn.Module):
         print(f"📊 Trainable parameters: {trainable:,} / {total:,} ({trainable/total*100:.1f}%)")
         return trainable, total
 
-def build_model(config=None):
+def build_model(num_classes=20, config=None):
     """Factory function für Transfer Learning Model"""
     if config is None:
         raise ValueError("Config is required for transfer learning")

@@ -291,9 +291,8 @@ class ObjectDetectionHead(nn.Module):
         
         return x.permute(0, 2, 3, 1)  # [batch, grid_size, grid_size, output_size]
 
-def build_model(config=None):
+def build_model(num_classes=20, config=None):
     """Factory function for Swin Tiny Object Detection"""
-    num_classes = 20
     pretrained = True
     
     if config:

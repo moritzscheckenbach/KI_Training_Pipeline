@@ -24,11 +24,11 @@ augmentation:
   file: "augmentation_1"
 
 model:
-  type: "classification"
-  file: "cnn_class_001"
+  type: "object_detection"
+  file: 
   transfer_learning:
-    enabled: false      #             !!!IMMER true/false WICHTIG!!!
-    path: "trained_models/object_detection/20250808_095238_ResNet50/models/best_model.pth"
+    enabled: true      #             !!!IMMER true/false WICHTIG!!!
+    path: "trained_models/object_detection/20250812_140459_ResNet50/models/best_model_weights.pth"
     trans_file: "transferlearning"
     freezing:
       enabled: true
