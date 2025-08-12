@@ -24,10 +24,10 @@ augmentation:
   file: "augmentation_1"
 
 model:
-  type: "object_detection"
-  file: "ResNet50"
+  type: "classification"
+  file: "cnn_class_001"
   transfer_learning:
-    enabled: false
+    enabled: false      #             !!!IMMER true/false WICHTIG!!!
     path: "trained_models/object_detection/20250808_095238_ResNet50/models/best_model.pth"
     trans_file: "transferlearning"
     freezing:
@@ -43,5 +43,6 @@ model:
       head_lr_multiplier: 1.0
 
 dataset:
-  root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
-  type: "Type_COCO"
+  root: "datasets/classification/Type_Folder/pokemon/"
+  type: "Type_Folder"
+  num_classes: 110
