@@ -1,5 +1,5 @@
 training:
-  epochs: 5
+  epochs: 3
   batch_size: 16
   learning_rate: 0.001
   early_stopping_patience: 10
@@ -25,10 +25,10 @@ augmentation:
 
 model:
   type: "object_detection"
-  file: 
+  file: ""
   transfer_learning:
     enabled: true      #             !!!IMMER true/false WICHTIG!!!
-    path: "trained_models/object_detection/20250812_140459_ResNet50/models/best_model_weights.pth"
+    path: "trained_models/object_detection/20250814_145642_cnn_001/models/best_model_weights.pth"
     trans_file: "transferlearning"
     freezing:
       enabled: true
@@ -43,6 +43,6 @@ model:
       head_lr_multiplier: 1.0
 
 dataset:
-  root: "datasets/classification/Type_Folder/pokemon/"
-  type: "Type_Folder"
-  num_classes: 110
+  root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
+  type: "Type_COCO"
+  num_classes: 4

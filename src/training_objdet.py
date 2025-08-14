@@ -84,7 +84,7 @@ def train(cfg: DictConfig):
         if cfg.model.transfer_learning.enabled:
             model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
 
-            model = model_architecture.build_model(num_classes=cfg.dataset.num_classes)  # TODO num_classes / pretrained / other arguments need to be handled
+            model = model_architecture.build_model_tr(cfg=cfg)
             logger.info("✅ Transfer learning model loaded successfully")
         else:
             model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
