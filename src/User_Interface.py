@@ -320,12 +320,55 @@ st.code(yaml_text, language="yaml")
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("In Datei speichern"):
-        output_path = Path("pipeline_config.yaml")
+    if st.button("Training starten"):
+        output_path = Path("conf/config.yaml")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as f:
             yaml.dump(config, f)
         st.success(f"Gespeichert: {output_path.resolve()}")
 
+        # Start the appropriate training file based on task
+        training_files = {"classification": "training_class.py", "object_detection": "training_objdet.py", "segmentation": "training_seg.py"}
+
+        training_file = training_files.get(task)
+        if training_file and Path(training_file).exists():
+            try:
+                st.info(f"Starte Training für {task}...")
+                # Start training in a new terminal window
+                import shutil
+                import subprocess
+                import sys
+
+                # Check which terminal is available and use the best option
+                if shutil.which("xterm"):
+                    # Basic xterm (always available) - ZUERST prüfen!
+                    st.info("Verwende xterm...")
+                    terminal_command = ["xterm", "-e", f"bash -c 'cd {Path.cwd()} && {sys.executable} {training_file}; echo \"Training beendet. Drücke Enter zum Schließen...\"; read'"]
+                elif shutil.which("konsole"):
+                    # KDE terminal
+                    terminal_command = ["konsole", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                elif shutil.which("x-terminal-emulator"):
+                    # Standard Linux terminal (might link to problematic gnome-terminal)
+                    st.warning("Verwende x-terminal-emulator (könnte gnome-terminal sein)...")
+                    terminal_command = ["x-terminal-emulator", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                elif shutil.which("gnome-terminal"):
+                    # GNOME terminal (fallback)
+                    st.warning("Verwende gnome-terminal (könnte Snap-Probleme haben)...")
+                    terminal_command = ["gnome-terminal", "--", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                else:
+                    st.error("Kein unterstütztes Terminal gefunden!")
+                    terminal_command = None
+
+                if terminal_command:
+                    process = subprocess.Popen(terminal_command)
+
+                st.success(f"Training gestartet! Prozess-ID: {process.pid}")
+                st.info("Das Training läuft in einem neuen Terminalfenster. Du kannst den Fortschritt dort verfolgen.")
+
+            except Exception as e:
+                st.error(f"Fehler beim Starten des Trainings: {e}")
+        else:
+            st.error(f"Training-Datei nicht gefunden: {training_file}")
+
 with col2:
-    st.download_button("Als Download", data=yaml_text, file_name="pipeline_config.yaml", mime="text/yaml")
+    st.download_button("Als Download", data=yaml_text, file_name="config.yaml", mime="text/yaml")

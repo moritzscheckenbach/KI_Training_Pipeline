@@ -379,18 +379,23 @@ def train(cfg: DictConfig):
     # 12. EXPERIMENT SUMMARY
     # =============================================================================
 
+    # Konvertiere OmegaConf zu normalem Dictionary für saubere YAML-Ausgabe
+    from omegaconf import OmegaConf
+
+    clean_config = OmegaConf.to_container(cfg, resolve=True)
+
     summary = {
         "experiment_name": experiment_name,
         "model_architecture": model_name,
+        "timestamp": timestamp,
         "total_epochs": epoch + 1,
         "best_val_loss": best_val_loss,
         "test_loss": avg_test_loss,
-        "config": cfg,
-        "timestamp": timestamp,
+        "config": clean_config,  # Saubere Konfiguration ohne OmegaConf-Metadaten
     }
 
-    with open(f"{experiment_dir}/experiment_summary.yaml", "w") as f:
-        yaml.dump(summary, f, default_flow_style=False)
+    with open(f"{experiment_dir}/experiment_summary.yaml", "w", encoding="utf-8") as f:
+        yaml.dump(summary, f, default_flow_style=False, allow_unicode=True)
     writer.close()
 
     # =============================================================================
