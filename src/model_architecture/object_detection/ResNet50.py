@@ -62,27 +62,41 @@ class ResNet50ObjectDetection(nn.Module):
                     nn.init.constant_(module.bias, 0)
     
     def forward(self, x, targets=None):
-        # ResNet50 backbone
+        # Backbone
         features = self.backbone(x)
-        
-        # Adaptive pooling to grid_size
         features = self.adaptive_pool(features)
-        
-        # Detection head
+        # Head
         detection_output = self.detection_head(features)
-        
-        if targets is not None:
-            # Training: Return losses (same logic as cnn_001)
+
+        if self.training:
+            # Erwartet: targets ist gesetzt
+            if targets is None:
+                raise ValueError("targets must be provided during training")
             return self._compute_losses(detection_output, targets)
         else:
-            # Inference: Return predictions
-            predictions = self._parse_detections(detection_output)
-            return {
-                "predictions": predictions,
-                "classification_loss": torch.tensor(0.0, device=x.device),
-                "bbox_regression_loss": torch.tensor(0.0, device=x.device),
-                "confidence_loss": torch.tensor(0.0, device=x.device)
-            }
+            # Inference
+            predictions = self._parse_detections(detection_output)  # <- gibt bei dir offenbar None zurück
+
+            B = x.shape[0]
+            device = x.device
+            # Robustheit: leere Detections je Bild, falls None oder falsches Format
+            if predictions is None or not isinstance(predictions, (list, tuple)) or len(predictions) != B:
+                empty = {
+                    "boxes": torch.empty((0, 4), device=device),
+                    "scores": torch.empty((0,), device=device),
+                    "labels": torch.empty((0,), dtype=torch.long, device=device),
+                }
+                return [empty.copy() for _ in range(B)]
+
+            # Optional: sicherstellen, dass keys existieren
+            norm = []
+            for p in predictions:
+                norm.append({
+                    "boxes": p.get("boxes", torch.empty((0, 4), device=device)),
+                    "scores": p.get("scores", torch.empty((0,), device=device)),
+                    "labels": p.get("labels", torch.empty((0,), dtype=torch.long, device=device)),
+                })
+            return norm
     
     def _compute_losses(self, detection_output, targets):
         """Compute training losses (kopiert von cnn_001)"""
@@ -149,9 +163,35 @@ class ResNet50ObjectDetection(nn.Module):
         }
     
     def _parse_detections(self, detection_output):
-        """Parse grid output to detections (kopiert von cnn_001)"""
-        # Kopiere die _parse_detections Methode von cnn_001
-        pass
+        """Parse grid output to detections"""
+        batch_size = detection_output.size(0)
+        detections = []
+
+        for i in range(batch_size):
+            pred = detection_output[i]  # [output_channels, 13, 13]
+
+            # Extract predictions
+            class_pred = torch.softmax(pred[: self.num_classes], dim=0)
+            bbox_pred = pred[self.num_classes : self.num_classes + 4]
+            conf_pred = torch.sigmoid(pred[4])
+
+            # Find detections above threshold
+            conf_mask = conf_pred > 0.5
+
+            if conf_mask.sum() == 0:
+                detections.append({"class_scores": torch.empty((0, self.num_classes)), "bbox_coords": torch.empty((0, 4)), "confidence": torch.empty((0,))})
+                continue
+
+            # Get detections
+            y_coords, x_coords = torch.where(conf_mask)
+
+            detected_classes = class_pred[:, y_coords, x_coords].t()  # [num_detections, num_classes]
+            detected_boxes = bbox_pred[:, y_coords, x_coords].t()  # [num_detections, 4]
+            detected_conf = conf_pred[y_coords, x_coords]  # [num_detections]
+
+            detections.append({"class_scores": detected_classes, "bbox_coords": detected_boxes, "confidence": detected_conf})
+
+        return detections
     
     def get_input_size(self):
         """Return expected input size as (height, width)"""
