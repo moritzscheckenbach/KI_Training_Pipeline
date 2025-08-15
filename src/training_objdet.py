@@ -6,22 +6,22 @@ from datetime import datetime
 from math import sqrt
 
 import hydra
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import yaml
-import numpy as np
-import matplotlib.pyplot as plt
-
 from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
+from torchvision.transforms import v2 as T
+from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
-
 
 from utils.YOLO_Dataset_Loader import YoloDataset
 
@@ -65,14 +65,10 @@ def train(cfg: DictConfig):
     # =============================================================================
 
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""),
-               format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-               level="INFO", colorize=True)
+    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="INFO", colorize=True)
 
     log_file_path = f"{experiment_dir}/training.log"
-    logger.add(log_file_path,
-               format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-               level="DEBUG", rotation="100 MB", retention="10 days")
+    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="DEBUG", rotation="100 MB", retention="10 days")
 
     src = to_absolute_path("conf/config.yaml")
     shutil.copy(src, os.path.join(experiment_dir, "configs", "config.yaml"))
@@ -113,6 +109,75 @@ def train(cfg: DictConfig):
     base_transform = augmentation.augment()
     logger.info(f"🔄 Using augmentation: {cfg.augmentation.file}")
 
+    # v2 Eval-Transform (deterministisch)
+    val_base_transform = T.Compose(
+        [
+            T.ToImage(),
+            T.ToDtype(torch.float32, scale=True),
+            T.Resize((inputsize_x, inputsize_y)),
+            T.SanitizeBoundingBoxes(),
+        ]
+    )
+
+    class DetectionV2Wrapper:
+        """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH)."""
+
+        def __init__(self, base_tf):
+            # Ergänze Resize auf Modell-Inputgröße vor die eigentliche Augmentierung
+            self.base_tf = T.Compose(
+                [
+                    T.Resize((inputsize_x, inputsize_y)),
+                    base_tf,
+                ]
+            )
+
+        def __call__(self, img, target):
+            # Canvas-Size (H,W)
+            if hasattr(img, "size"):
+                w, h = img.size  # PIL: (W,H)
+            elif hasattr(img, "shape") and len(img.shape) == 3:
+                _, h, w = img.shape
+            else:
+                h = w = None
+
+            if isinstance(target, list):
+                boxes = []
+                labels = []
+                for ann in target:
+                    bbox = ann.get("bbox")
+                    cid = ann.get("category_id", 0)
+                    if bbox is None:
+                        continue
+                    x, y, bw, bh = bbox  # COCO XYWH (Pixel)
+                    boxes.append([x, y, bw, bh])
+                    labels.append(cid)
+                boxes_t = torch.tensor(boxes, dtype=torch.float32) if len(boxes) > 0 else torch.zeros((0, 4), dtype=torch.float32)
+                labels_t = torch.tensor(labels, dtype=torch.int64) if len(labels) > 0 else torch.zeros((0,), dtype=torch.int64)
+                target = {"boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)), "labels": labels_t}
+            elif isinstance(target, dict):
+                boxes = target.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
+                labels = target.get("labels", torch.zeros((0,), dtype=torch.int64))
+                boxes = BoundingBoxes(torch.as_tensor(boxes, dtype=torch.float32), format="XYWH", canvas_size=(h, w))
+                labels = torch.as_tensor(labels, dtype=torch.int64)
+                target = {"boxes": boxes, "labels": labels}
+
+            img, target = self.base_tf(img, target)
+            # Zurück zu Standard-Tensoren (XYWH) ohne tv_tensors.
+            bb = target.get("boxes") if isinstance(target, dict) else None
+            if isinstance(bb, BoundingBoxes):
+                boxes_t = torch.as_tensor(bb, dtype=torch.float32)
+                fmt = getattr(bb, "format", None)
+                fmt_str = fmt.lower() if isinstance(fmt, str) else None
+                if fmt_str and fmt_str != "xywh":
+                    from torchvision.ops import box_convert
+
+                    boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
+                target["boxes"] = boxes_t
+            return img, target
+
+    v2_train_tf = DetectionV2Wrapper(base_transform)
+    v2_eval_tf = DetectionV2Wrapper(val_base_transform)
+
     # =============================================================================
     # 5. DATASET LOADING
     # =============================================================================
@@ -124,55 +189,24 @@ def train(cfg: DictConfig):
         train_dataset = CocoDetection(
             root=f"{dataset_root}train/",
             annFile=f"{dataset_root}train/_annotations.coco.json",
-            transform=transforms.Compose([
-                transforms.Resize((inputsize_x, inputsize_y)),
-                base_transform,
-                transforms.ToTensor()
-            ]),
+            transforms=v2_train_tf,
         )
         val_dataset = CocoDetection(
             root=f"{dataset_root}valid/",
             annFile=f"{dataset_root}valid/_annotations.coco.json",
-            transform=transforms.Compose([
-                transforms.Resize((inputsize_x, inputsize_y)),
-                transforms.ToTensor()
-            ])
+            transforms=v2_eval_tf,
         )
         test_dataset = CocoDetection(
             root=f"{dataset_root}test/",
             annFile=f"{dataset_root}test/_annotations.coco.json",
-            transform=transforms.Compose([
-                transforms.Resize((inputsize_x, inputsize_y)),
-                transforms.ToTensor()
-            ])
+            transforms=v2_eval_tf,
         )
 
     # TYPE YOLO Dataset
     if dataset_type == "Type_YOLO":
-        transform_train = transforms.Compose([
-            transforms.Resize((inputsize_x, inputsize_y)),
-            base_transform,
-            transforms.ToTensor()
-        ])
-        transform_val_test = transforms.Compose([
-            transforms.Resize((inputsize_x, inputsize_y)),
-            transforms.ToTensor()
-        ])
-        train_dataset = YoloDataset(
-            images_dir=f"{dataset_root}train/images/",
-            labels_dir=f"{dataset_root}train/labels/",
-            transform=transform_train
-        )
-        val_dataset = YoloDataset(
-            images_dir=f"{dataset_root}valid/images/",
-            labels_dir=f"{dataset_root}valid/labels/",
-            transform=transform_val_test
-        )
-        test_dataset = YoloDataset(
-            images_dir=f"{dataset_root}test/images/",
-            labels_dir=f"{dataset_root}test/labels/",
-            transform=transform_val_test
-        )
+        train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
+        val_dataset = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
+        test_dataset = YoloDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf)
 
     logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
@@ -283,18 +317,16 @@ def train(cfg: DictConfig):
             images = torch.stack([image.to(device) for image in images])
 
             processed_targets = []
-            for target_list in targets:
-                if isinstance(target_list, list) and len(target_list) > 0:
-                    target_dict = {
-                        "boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in target_list]),
-                        "labels": torch.tensor([ann["category_id"] for ann in target_list])
-                    }
+            for tgt in targets:
+                if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
+                    boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
+                    labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+                    processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
+                elif isinstance(tgt, list) and len(tgt) > 0:
+                    target_dict = {"boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]), "labels": torch.tensor([ann["category_id"] for ann in tgt])}
                     processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
                 else:
-                    processed_targets.append({
-                        "boxes": torch.empty((0, 4), device=device),
-                        "labels": torch.empty((0,), dtype=torch.long, device=device)
-                    })
+                    processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
             optimizer.zero_grad()
             loss_dict = model(images, processed_targets)
@@ -343,7 +375,7 @@ def train(cfg: DictConfig):
                     imgs_vis = images[:4].detach().cpu()
                     preds = model(imgs_vis.to(device))
                     model.train()
-                grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[:len(imgs_vis)], preds)
+                grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds)
                 writer.add_image("Train/GT_vs_Pred", grid, epoch)
 
         avg_train_loss = train_loss / len(train_dataloader)
@@ -365,18 +397,16 @@ def train(cfg: DictConfig):
                 images = torch.stack([image.to(device) for image in images])
 
                 processed_targets = []
-                for target_list in targets:
-                    if isinstance(target_list, list) and len(target_list) > 0:
-                        target_dict = {
-                            "boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in target_list]),
-                            "labels": torch.tensor([ann["category_id"] for ann in target_list])
-                        }
+                for tgt in targets:
+                    if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
+                        boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
+                        labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+                        processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
+                    elif isinstance(tgt, list) and len(tgt) > 0:
+                        target_dict = {"boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]), "labels": torch.tensor([ann["category_id"] for ann in tgt])}
                         processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
                     else:
-                        processed_targets.append({
-                            "boxes": torch.empty((0, 4), device=device),
-                            "labels": torch.empty((0,), dtype=torch.long, device=device)
-                        })
+                        processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
                 # Val-Loss
                 loss_dict = model(images, processed_targets)
@@ -390,7 +420,7 @@ def train(cfg: DictConfig):
                         imgs_vis = images[:4].detach().cpu()
                         preds = model(imgs_vis.to(device))
                     model.train()
-                    grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[:len(imgs_vis)], preds)
+                    grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds)
                     writer.add_image("Val/GT_vs_Pred", grid, epoch)
 
         avg_val_loss = val_loss / len(val_dataloader)
@@ -406,15 +436,18 @@ def train(cfg: DictConfig):
 
                 # GT in xyxy + auf Device (Klassencodierung: category_id muss 0..C-1 sein)
                 processed_targets = []
-                for target_list in targets:
-                    if isinstance(target_list, list) and len(target_list) > 0:
+                for tgt in targets:
+                    if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
+                        boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
+                        labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+                        t = {"boxes": coco_xywh_to_xyxy(boxes.to(device).float()), "labels": labels.to(device).long()}
+                    elif isinstance(tgt, list) and len(tgt) > 0:
                         t = {
-                            "boxes": coco_xywh_to_xyxy(torch.stack([torch.tensor(ann["bbox"]) for ann in target_list]).to(device)),
-                            "labels": torch.tensor([ann["category_id"] for ann in target_list], device=device, dtype=torch.long),
+                            "boxes": coco_xywh_to_xyxy(torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]).to(device)),
+                            "labels": torch.tensor([ann["category_id"] for ann in tgt], device=device, dtype=torch.long),
                         }
                     else:
-                        t = {"boxes": torch.empty((0, 4), device=device),
-                            "labels": torch.empty((0,), dtype=torch.long, device=device)}
+                        t = {"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)}
                     processed_targets.append(t)
 
                 detections = model(images)  # list of dicts (eval)
@@ -433,25 +466,23 @@ def train(cfg: DictConfig):
                     all_gts.append(gt_item)
 
         num_classes = cfg.dataset.num_classes
-        cm_ext_val = confusion_matrix_detection(
-            all_preds, all_gts, num_classes=num_classes, iou_thr=0.5, score_thr=0.5
-        )
+        cm_ext_val = confusion_matrix_detection(all_preds, all_gts, num_classes=num_classes, iou_thr=0.5, score_thr=0.5)
         m = metrics_from_cm(cm_ext_val)
 
         # --- TensorBoard Logging (Epoche) ---
         writer.add_scalar("ValMetrics/Accuracy", m["accuracy"], epoch)
         writer.add_scalar("ValMetrics/Micro/Precision", m["micro"]["precision"], epoch)
-        writer.add_scalar("ValMetrics/Micro/Recall",    m["micro"]["recall"],    epoch)
-        writer.add_scalar("ValMetrics/Micro/F1",        m["micro"]["f1"],        epoch)
+        writer.add_scalar("ValMetrics/Micro/Recall", m["micro"]["recall"], epoch)
+        writer.add_scalar("ValMetrics/Micro/F1", m["micro"]["f1"], epoch)
         writer.add_scalar("ValMetrics/Macro/Precision", m["macro"]["precision"], epoch)
-        writer.add_scalar("ValMetrics/Macro/Recall",    m["macro"]["recall"],    epoch)
-        writer.add_scalar("ValMetrics/Macro/F1",        m["macro"]["f1"],        epoch)
+        writer.add_scalar("ValMetrics/Macro/Recall", m["macro"]["recall"], epoch)
+        writer.add_scalar("ValMetrics/Macro/F1", m["macro"]["f1"], epoch)
 
         # Per-Class als Histogramme/Scalars
         pc = m["per_class"]
         writer.add_histogram("ValMetrics/PerClass/Precision", pc["precision"], epoch)
-        writer.add_histogram("ValMetrics/PerClass/Recall",    pc["recall"],    epoch)
-        writer.add_histogram("ValMetrics/PerClass/F1",        pc["f1"],        epoch)
+        writer.add_histogram("ValMetrics/PerClass/Recall", pc["recall"], epoch)
+        writer.add_histogram("ValMetrics/PerClass/F1", pc["f1"], epoch)
 
         # --- Scheduler Step ---
         if use_scheduler:
@@ -523,18 +554,16 @@ def train(cfg: DictConfig):
                 continue
             images = torch.stack([image.to(device) for image in images])
             processed_targets = []
-            for target_list in targets:
-                if isinstance(target_list, list) and len(target_list) > 0:
-                    target_dict = {
-                        "boxes": torch.stack([torch.tensor(ann['bbox']) for ann in target_list]),
-                        "labels": torch.tensor([ann['category_id'] for ann in target_list])
-                    }
+            for tgt in targets:
+                if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
+                    boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
+                    labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+                    processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
+                elif isinstance(tgt, list) and len(tgt) > 0:
+                    target_dict = {"boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]), "labels": torch.tensor([ann["category_id"] for ann in tgt])}
                     processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
                 else:
-                    processed_targets.append({
-                        "boxes": torch.empty((0, 4), device=device),
-                        "labels": torch.empty((0,), dtype=torch.long, device=device)
-                    })
+                    processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
             loss_dict = model(images, processed_targets)
             losses = sum(loss for loss in loss_dict.values())
             test_loss += losses.item()
@@ -558,15 +587,18 @@ def train(cfg: DictConfig):
             images = torch.stack([image.to(device) for image in images])
 
             processed_targets = []
-            for target_list in targets:
-                if isinstance(target_list, list) and len(target_list) > 0:
+            for tgt in targets:
+                if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
+                    boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
+                    labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+                    t = {"boxes": coco_xywh_to_xyxy(boxes.to(device).float()), "labels": labels.to(device).long()}
+                elif isinstance(tgt, list) and len(tgt) > 0:
                     t = {
-                        "boxes": coco_xywh_to_xyxy(torch.stack([torch.tensor(ann["bbox"]) for ann in target_list]).to(device)),
-                        "labels": torch.tensor([ann["category_id"] for ann in target_list], device=device, dtype=torch.long),
+                        "boxes": coco_xywh_to_xyxy(torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]).to(device)),
+                        "labels": torch.tensor([ann["category_id"] for ann in tgt], device=device, dtype=torch.long),
                     }
                 else:
-                    t = {"boxes": torch.empty((0, 4), device=device),
-                         "labels": torch.empty((0,), dtype=torch.long, device=device)}
+                    t = {"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)}
                 processed_targets.append(t)
 
             detections = model(images)  # eval -> list of dicts
@@ -588,7 +620,7 @@ def train(cfg: DictConfig):
     cm_ext = confusion_matrix_detection(all_preds, all_gts, num_classes=num_classes, iou_thr=0.5, score_thr=0.5)
 
     fig, ax = plt.subplots(figsize=(8, 8))
-    im = ax.imshow(cm_ext, interpolation='nearest')
+    im = ax.imshow(cm_ext, interpolation="nearest")
     ax.set_title("Confusion Matrix (GT rows, Pred cols)\nLast column=FN, Last row=FP")
     ax.set_xlabel("Predicted class")
     ax.set_ylabel("Ground truth class")
@@ -636,26 +668,22 @@ def train(cfg: DictConfig):
 # Hilfsfunktionen
 # ==============================
 
+
 def collate_fn(batch):
-    """Füllt leere Annotations mit Nullen statt sie zu filtern"""
+    """Detection-collate: gebe Listen zurück, kompatibel mit variabler Boxanzahl."""
     images = []
     targets = []
-
     for img, target in batch:
         if img is None:
             continue
-
         images.append(img)
-
-        if target is None or len(target) == 0:
-            targets.append([])
+        if target is None or (isinstance(target, list) and len(target) == 0):
+            targets.append({"boxes": torch.zeros((0, 4)), "labels": torch.zeros((0,), dtype=torch.long)})
         else:
             targets.append(target)
-
     if len(images) == 0:
         return None, None
-
-    return (tuple(images), tuple(targets))
+    return list(images), list(targets)
 
 
 def clear_gpu_cache():
@@ -687,8 +715,7 @@ def draw_boxes_on_img(img: torch.Tensor, boxes: torch.Tensor, labels: torch.Tens
     # img: CHW uint8, boxes: xyxy
     if boxes.numel() == 0:
         return draw_bounding_boxes(img, torch.zeros((0, 4), dtype=torch.int64), labels=[], width=2)
-    return draw_bounding_boxes(img, boxes.round().to(torch.int64),
-                               labels=[str(int(l)) for l in labels], width=2)
+    return draw_bounding_boxes(img, boxes.round().to(torch.int64), labels=[str(int(l)) for l in labels], width=2)
 
 
 def make_gt_vs_pred_grid(imgs_vis: torch.Tensor, targets_list, preds_list):
@@ -732,8 +759,8 @@ def iou_matrix(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     # a,b: [Na,4],[Nb,4] in xyxy
     if a.numel() == 0 or b.numel() == 0:
         return torch.zeros((a.shape[0], b.shape[0]))
-    lt = torch.max(a[:, None, :2], b[:, :2])   # [Na,Nb,2]
-    rb = torch.min(a[:, None, 2:], b[:, 2:])   # [Na,Nb,2]
+    lt = torch.max(a[:, None, :2], b[:, :2])  # [Na,Nb,2]
+    rb = torch.min(a[:, None, 2:], b[:, 2:])  # [Na,Nb,2]
     wh = (rb - lt).clamp(min=0)
     inter = wh[:, :, 0] * wh[:, :, 1]
     area_a = (a[:, 2] - a[:, 0]).clamp(min=0) * (a[:, 3] - a[:, 1]).clamp(min=0)
@@ -813,25 +840,24 @@ def metrics_from_cm(cm_ext: np.ndarray):
     fp = cm_ext[-1, :num_classes]
 
     tp = np.diag(cm)
-    support = tp + fn              # GT je Klasse
-    predicted = tp + fp            # Pred je Klasse
+    support = tp + fn  # GT je Klasse
+    predicted = tp + fp  # Pred je Klasse
 
-    with np.errstate(divide='ignore', invalid='ignore'):
+    with np.errstate(divide="ignore", invalid="ignore"):
         prec_c = np.where(predicted > 0, tp / predicted, 0.0)
-        rec_c  = np.where(support  > 0, tp / support,   0.0)
-        f1_c   = np.where((prec_c + rec_c) > 0, 2 * prec_c * rec_c / (prec_c + rec_c), 0.0)
+        rec_c = np.where(support > 0, tp / support, 0.0)
+        f1_c = np.where((prec_c + rec_c) > 0, 2 * prec_c * rec_c / (prec_c + rec_c), 0.0)
 
     TP, FP, FN = tp.sum(), fp.sum(), fn.sum()
     precision_micro = float(TP / (TP + FP)) if (TP + FP) > 0 else 0.0
-    recall_micro    = float(TP / (TP + FN)) if (TP + FN) > 0 else 0.0
-    f1_micro        = (2*precision_micro*recall_micro/(precision_micro+recall_micro)
-                       if (precision_micro+recall_micro) > 0 else 0.0)
+    recall_micro = float(TP / (TP + FN)) if (TP + FN) > 0 else 0.0
+    f1_micro = 2 * precision_micro * recall_micro / (precision_micro + recall_micro) if (precision_micro + recall_micro) > 0 else 0.0
 
-    valid = (support > 0)
+    valid = support > 0
     if valid.any():
         precision_macro = float(np.mean(prec_c[valid]))
-        recall_macro    = float(np.mean(rec_c[valid]))
-        f1_macro        = float(np.mean(f1_c[valid]))
+        recall_macro = float(np.mean(rec_c[valid]))
+        f1_macro = float(np.mean(f1_c[valid]))
     else:
         precision_macro = recall_macro = f1_macro = 0.0
 
@@ -844,9 +870,6 @@ def metrics_from_cm(cm_ext: np.ndarray):
         "macro": {"precision": precision_macro, "recall": recall_macro, "f1": f1_macro},
         "accuracy": accuracy,
     }
-
-
-
 
 
 if __name__ == "__main__":
