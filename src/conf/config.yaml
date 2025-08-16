@@ -18,10 +18,10 @@ optimizer:
   sgd:
     momentum: 0.9
 augmentation:
-  file: "__init__"
+  file: "augmentation_1"
 model:
-  type: "classification"
-  file: "cnn_class_001"
+  type: "object_detection"
+  file: "ResNet50"
   transfer_learning:
     enabled: false
     path: ''
@@ -38,6 +38,6 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/classification/Type_Folder/pokemon/"
-  type: "Type_Folder"
-  num_classes: 110
+  root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
+  type: "Type_COCO"
+  num_classes: 4
