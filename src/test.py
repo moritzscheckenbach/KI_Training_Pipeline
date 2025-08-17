@@ -2,7 +2,7 @@
 import argparse
 import os
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, Any, List, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -321,7 +321,242 @@ def main():
     # -----------------------------
     # Evaluation (COCO mAP)
     # -----------------------------
-    evaluate_coco(model, val_loader, coco_val, contig_to_catid, device)
+    evaluate_coco_from_loader(model, val_loader, contig_to_catid, device, "bbox")
+
+
+@torch.no_grad()
+def _maybe_to_xywh_abs(bboxes_xywh: torch.Tensor,
+                       img_w: int,
+                       img_h: int) -> torch.Tensor:
+    """
+    Erwartet GT-Boxen im XYWH-Format. Falls normalisiert (<=1.5),
+    skaliert auf Pixelkoordinaten.
+    """
+    if bboxes_xywh.numel() == 0:
+        return bboxes_xywh
+    # Heuristik: wenn alle Werte <= 1.5, behandeln als normalisiert.
+    if float(bboxes_xywh.max()) <= 1.5:
+        scale = torch.tensor([img_w, img_h, img_w, img_h], dtype=bboxes_xywh.dtype, device=bboxes_xywh.device)
+        return bboxes_xywh * scale
+    return bboxes_xywh
+
+
+def _get_img_wh_from_target(tgt: Dict[str, Any],
+                            img_tensor: Optional[torch.Tensor]) -> (int, int):
+    """
+    Versucht width/height robust aus dem Target zu lesen.
+    Fallback: Tensorgröße (C,H,W) falls verfügbar.
+    """
+    if "width" in tgt and "height" in tgt:
+        return int(tgt["width"]), int(tgt["height"])
+    if "orig_size" in tgt:
+        # üblich: (H, W)
+        h, w = tgt["orig_size"]
+        return int(w), int(h)
+    if "size" in tgt:
+        h, w = tgt["size"]
+        return int(w), int(h)
+    if img_tensor is not None:
+        # Tensor: (C, H, W)
+        _, h, w = img_tensor.shape
+        return int(w), int(h)
+    # Letzter Fallback
+    return 0, 0
+
+
+@torch.no_grad()
+def _build_coco_gt_from_loader(
+    data_loader,
+    contig_to_catid: Dict[int, int],
+    device: torch.device
+) -> COCO:
+    """
+    Erstellt ein COCO-GT-Objekt (in-memory) aus dem DataLoader.
+    Erwartet Targets mit:
+      - "image_id" (Tensor oder int),
+      - "boxes" (XYWH; evtl. normalisiert),
+      - "labels" (contiguous ids, die über contig_to_catid auf COCO cat_id gemappt werden),
+      - optional: "width"/"height" oder "orig_size"/"size".
+    """
+    images = []
+    annotations = []
+    ann_id = 1  # laufende ID
+
+    # categories aus Mapping ableiten (Namen optional)
+    categories = [{"id": int(coco_id), "name": str(coco_id)} for coco_id in sorted(set(contig_to_catid.values()))]
+
+    # Einmal durch den Loader iterieren (eval: shuffle=False)
+    for batch in data_loader:
+        # batch = (images, targets) oder nur targets – je nach collate_fn
+        if isinstance(batch, (list, tuple)) and len(batch) == 2:
+            imgs, tgts = batch
+            # auf CPU lassen – wir brauchen hier nur Meta/Boxen
+        else:
+            # Unerwartetes Format
+            raise ValueError("Unerwartetes Batch-Format. Erwartet (images, targets).")
+
+        for img, tgt in zip(imgs, tgts):
+            img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
+            img_w, img_h = _get_img_wh_from_target(tgt, img)
+
+            # Image-Eintrag
+            images.append({
+                "id": img_id,
+                "width": img_w,
+                "height": img_h,
+                # "file_name" optional
+            })
+
+            # GT-Boxen lesen (im Dataset als XYXY) und in XYWH konvertieren
+            gt_boxes = tgt["boxes"]
+            if isinstance(gt_boxes, torch.Tensor):
+                gt_boxes = gt_boxes.clone().cpu()
+            else:
+                gt_boxes = torch.as_tensor(gt_boxes)
+
+            # Falls die Boxen normalisiert sind (selten), zuerst in Pixel skalieren
+            if gt_boxes.numel() > 0 and float(gt_boxes.max()) <= 1.5 and img_w > 0 and img_h > 0:
+                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h],
+                                        dtype=gt_boxes.dtype, device=gt_boxes.device)
+                gt_boxes = gt_boxes * scale_xyxy
+
+            # XYXY -> XYWH
+            if gt_boxes.numel() > 0:
+                x1 = gt_boxes[:, 0]
+                y1 = gt_boxes[:, 1]
+                x2 = gt_boxes[:, 2]
+                y2 = gt_boxes[:, 3]
+                w = (x2 - x1).clamp(min=0)
+                h = (y2 - y1).clamp(min=0)
+                gt_boxes = torch.stack([x1, y1, w, h], dim=1)
+
+
+
+            gt_labels = tgt["labels"]
+            if isinstance(gt_labels, torch.Tensor):
+                gt_labels = gt_labels.cpu()
+
+            for b, l in zip(gt_boxes, gt_labels):
+                x, y, w, h = [float(v) for v in b.tolist()]
+                coco_cat = int(contig_to_catid[int(l)])
+                annotations.append({
+                    "id": ann_id,
+                    "image_id": img_id,
+                    "category_id": coco_cat,
+                    "bbox": [x, y, w, h],
+                    "area": float(max(w, 0.0) * max(h, 0.0)),
+                    "iscrowd": 0,
+                })
+                ann_id += 1
+
+    # COCO-Objekt aus Dict erstellen
+    coco = COCO()
+    coco.dataset = {
+        "info": {"description": "in-memory GT", "version": "1.0"},
+        "licenses": [],
+        "images": images,
+        "annotations": annotations,
+        "categories": categories,
+    }
+    coco.createIndex()
+    return coco
+
+
+@torch.no_grad()
+def evaluate_coco_from_loader(
+    model,
+    data_loader,
+    contig_to_catid: Dict[int, int],
+    device: torch.device,
+    iou_type: str = "bbox",
+):
+    """
+    Führt Inferenz + COCOeval durch, ohne Annotationsdatei zu laden.
+    GT kommt vollständig aus dem DataLoader.
+    """
+    # 1) COCO-GT aus Loader aufbauen
+    coco_gt = _build_coco_gt_from_loader(data_loader, contig_to_catid, device)
+
+    # 2) Inferenz & Predictions ins COCO-JSON-Format (XYWH, absolute Pixel)
+    model.eval()
+    results: List[Dict[str, Any]] = []
+
+    for images, targets in data_loader:
+        images = [img.to(device) for img in images]
+        outputs = model(images)
+
+        for out, tgt in zip(outputs, targets):
+            img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
+
+            boxes_xyxy = out["boxes"].detach().cpu()
+            scores = out["scores"].detach().cpu()
+            labels = out["labels"].detach().cpu()
+
+            if boxes_xyxy.numel() > 0:
+                x1 = boxes_xyxy[:, 0]
+                y1 = boxes_xyxy[:, 1]
+                x2 = boxes_xyxy[:, 2]
+                y2 = boxes_xyxy[:, 3]
+                w = (x2 - x1).clamp(min=0)
+                h = (y2 - y1).clamp(min=0)
+                xywh = torch.stack([x1, y1, w, h], dim=1)
+
+                for b, s, l in zip(xywh, scores, labels):
+                    results.append({
+                        "image_id": img_id,
+                        "category_id": int(contig_to_catid[int(l)]),
+                        "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
+                        "score": float(s),
+                    })
+
+    if len(results) == 0:
+        print("WARN: Keine Predictions erzeugt – Evaluation wird übersprungen.")
+        return None
+
+    # 3) COCOeval
+    coco_dt = coco_gt.loadRes(results)
+    coco_eval = COCOeval(coco_gt, coco_dt, iouType=iou_type)
+    coco_eval.evaluate()
+    coco_eval.accumulate()
+    coco_eval.summarize()
+
+    # Rückgabe der Stats (AP@[.50:.95], AP50, AP75, etc.)
+    # coco_eval.stats: ndarray mit 12 Werten
+    metrics = {
+        "AP": float(coco_eval.stats[0]),
+        "AP50": float(coco_eval.stats[1]),
+        "AP75": float(coco_eval.stats[2]),
+        "AP_small": float(coco_eval.stats[3]),
+        "AP_medium": float(coco_eval.stats[4]),
+        "AP_large": float(coco_eval.stats[5]),
+        "AR_1": float(coco_eval.stats[6]),
+        "AR_10": float(coco_eval.stats[7]),
+        "AR_100": float(coco_eval.stats[8]),
+        "AR_small": float(coco_eval.stats[9]),
+        "AR_medium": float(coco_eval.stats[10]),
+        "AR_large": float(coco_eval.stats[11]),
+    }
+    return metrics
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
