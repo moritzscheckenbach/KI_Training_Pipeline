@@ -65,7 +65,7 @@ def train(cfg: DictConfig):
     # =============================================================================
 
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="INFO", colorize=True)
+    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="DEBUG", colorize=True)
 
     log_file_path = f"{experiment_dir}/training.log"
     logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="DEBUG", rotation="100 MB", retention="10 days")
@@ -119,64 +119,8 @@ def train(cfg: DictConfig):
         ]
     )
 
-    class DetectionV2Wrapper:
-        """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH)."""
-
-        def __init__(self, base_tf):
-            # Ergänze Resize auf Modell-Inputgröße vor die eigentliche Augmentierung
-            self.base_tf = T.Compose(
-                [
-                    T.Resize((inputsize_x, inputsize_y)),
-                    base_tf,
-                ]
-            )
-
-        def __call__(self, img, target):
-            # Canvas-Size (H,W)
-            if hasattr(img, "size"):
-                w, h = img.size  # PIL: (W,H)
-            elif hasattr(img, "shape") and len(img.shape) == 3:
-                _, h, w = img.shape
-            else:
-                h = w = None
-
-            if isinstance(target, list):
-                boxes = []
-                labels = []
-                for ann in target:
-                    bbox = ann.get("bbox")
-                    cid = ann.get("category_id", 0)
-                    if bbox is None:
-                        continue
-                    x, y, bw, bh = bbox  # COCO XYWH (Pixel)
-                    boxes.append([x, y, bw, bh])
-                    labels.append(cid)
-                boxes_t = torch.tensor(boxes, dtype=torch.float32) if len(boxes) > 0 else torch.zeros((0, 4), dtype=torch.float32)
-                labels_t = torch.tensor(labels, dtype=torch.int64) if len(labels) > 0 else torch.zeros((0,), dtype=torch.int64)
-                target = {"boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)), "labels": labels_t}
-            elif isinstance(target, dict):
-                boxes = target.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
-                labels = target.get("labels", torch.zeros((0,), dtype=torch.int64))
-                boxes = BoundingBoxes(torch.as_tensor(boxes, dtype=torch.float32), format="XYWH", canvas_size=(h, w))
-                labels = torch.as_tensor(labels, dtype=torch.int64)
-                target = {"boxes": boxes, "labels": labels}
-
-            img, target = self.base_tf(img, target)
-            # Zurück zu Standard-Tensoren (XYWH) ohne tv_tensors.
-            bb = target.get("boxes") if isinstance(target, dict) else None
-            if isinstance(bb, BoundingBoxes):
-                boxes_t = torch.as_tensor(bb, dtype=torch.float32)
-                fmt = getattr(bb, "format", None)
-                fmt_str = fmt.lower() if isinstance(fmt, str) else None
-                if fmt_str and fmt_str != "xywh":
-                    from torchvision.ops import box_convert
-
-                    boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
-                target["boxes"] = boxes_t
-            return img, target
-
-    v2_train_tf = DetectionV2Wrapper(base_transform)
-    v2_eval_tf = DetectionV2Wrapper(val_base_transform)
+    v2_train_tf = DetectionV2Wrapper(base_transform, inputsize_x, inputsize_y)
+    v2_eval_tf = DetectionV2Wrapper(val_base_transform, inputsize_x, inputsize_y)
 
     # =============================================================================
     # 5. DATASET LOADING
@@ -870,6 +814,63 @@ def metrics_from_cm(cm_ext: np.ndarray):
         "macro": {"precision": precision_macro, "recall": recall_macro, "f1": f1_macro},
         "accuracy": accuracy,
     }
+
+class DetectionV2Wrapper:
+    """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH)."""
+
+    def __init__(self, base_tf, inputsize_x, inputsize_y):
+        # Ergänze Resize auf Modell-Inputgröße vor die eigentliche Augmentierung
+        self.base_tf = T.Compose(
+            [
+                T.Resize((inputsize_x, inputsize_y)),
+                base_tf,
+            ]
+        )
+
+    def __call__(self, img, target):
+        # Canvas-Size (H,W)
+        if hasattr(img, "size"):
+            w, h = img.size  # PIL: (W,H)
+        elif hasattr(img, "shape") and len(img.shape) == 3:
+            _, h, w = img.shape
+        else:
+            h = w = None
+
+        if isinstance(target, list):
+            boxes = []
+            labels = []
+            for ann in target:
+                bbox = ann.get("bbox")
+                cid = ann.get("category_id", 0)
+                if bbox is None:
+                    continue
+                x, y, bw, bh = bbox  # COCO XYWH (Pixel)
+                boxes.append([x, y, bw, bh])
+                labels.append(cid)
+            boxes_t = torch.tensor(boxes, dtype=torch.float32) if len(boxes) > 0 else torch.zeros((0, 4), dtype=torch.float32)
+            labels_t = torch.tensor(labels, dtype=torch.int64) if len(labels) > 0 else torch.zeros((0,), dtype=torch.int64)
+            target = {"boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)), "labels": labels_t}
+        elif isinstance(target, dict):
+            boxes = target.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
+            labels = target.get("labels", torch.zeros((0,), dtype=torch.int64))
+            boxes = BoundingBoxes(torch.as_tensor(boxes, dtype=torch.float32), format="XYWH", canvas_size=(h, w))
+            labels = torch.as_tensor(labels, dtype=torch.int64)
+            target = {"boxes": boxes, "labels": labels}
+
+        img, target = self.base_tf(img, target)
+        # Zurück zu Standard-Tensoren (XYWH) ohne tv_tensors.
+        bb = target.get("boxes") if isinstance(target, dict) else None
+        if isinstance(bb, BoundingBoxes):
+            boxes_t = torch.as_tensor(bb, dtype=torch.float32)
+            fmt = getattr(bb, "format", None)
+            fmt_str = fmt.lower() if isinstance(fmt, str) else None
+            if fmt_str and fmt_str != "xywh":
+                from torchvision.ops import box_convert
+
+                boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
+            target["boxes"] = boxes_t
+        return img, target
+
 
 
 if __name__ == "__main__":
