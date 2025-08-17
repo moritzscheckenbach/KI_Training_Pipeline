@@ -17,6 +17,7 @@ from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
 from torch.utils.data import DataLoader
+from torch.utils.data import Dataset
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
 from torchvision.transforms import v2 as T
@@ -29,7 +30,7 @@ from utils.PASCAL_Dataset_Loader import PascalDataset
 import argparse
 import os
 from pathlib import Path
-from typing import Tuple, Dict, Any, List
+from typing import Tuple, Dict, Any, List, Optional
 
 import torch
 from torch.utils.data import DataLoader
@@ -122,7 +123,7 @@ def train(cfg: DictConfig):
     # 4. AUGMENTATION
     # =============================================================================
 
-    inputsize_x, inputsize_y = model.get_input_size()
+    inputsize_x, inputsize_y = model_architecture.get_input_size()
     logger.info(f"📐 Model input size: {inputsize_x}x{inputsize_y}")
 
     augmentation = importlib.import_module(f"augmentations.{cfg.augmentation.file}")
@@ -155,12 +156,12 @@ def train(cfg: DictConfig):
             annFile=f"{dataset_root}train/_annotations.coco.json",
             transforms=v2_train_tf,
         )
-        val_dataset = CocoDetection(
+        val_dataset = CocoDetWrapped(
             root=f"{dataset_root}valid/",
             annFile=f"{dataset_root}valid/_annotations.coco.json",
             transforms=v2_eval_tf,
         )
-        test_dataset = CocoDetection(
+        test_dataset = CocoDetWrapped(
             root=f"{dataset_root}test/",
             annFile=f"{dataset_root}test/_annotations.coco.json",
             transforms=v2_eval_tf,
@@ -273,6 +274,7 @@ def train(cfg: DictConfig):
     writer.add_scalar("Model/num_parameters", n_params, 0)
 
     for epoch in range(cfg.training.epochs):
+        clear_gpu_cache()
         logger.info(f"📈 Epoch {epoch+1}/{cfg.training.epochs}")
 
         # ------------------------
@@ -336,8 +338,8 @@ def train(cfg: DictConfig):
             if i == 0 and (epoch % log_images_every_n_epochs == 0):
                 with torch.no_grad():
                     model.eval()
-                    imgs_vis = images[:4].detach().cpu()
-                    preds = model(imgs_vis.to(device))
+                    imgs_vis = [img.detach().cpu() for img in images[:4]]
+                    preds = model([img.to(device) for img in images[:4]])
                     model.train()
                 grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds)
                 writer.add_image("Train/GT_vs_Pred", grid, epoch)
@@ -354,60 +356,88 @@ def train(cfg: DictConfig):
         # Evaluation (COCO mAP)
         # -----------------------------
         #coco_val = COCO(str(annFile))
-        evaluate_coco_from_loader(model, val_dataloader, contig_to_catid, device, "bbox")
+        evaluate_coco_from_loader(
+            model=model,
+            data_loader=val_dataloader,
+            device=device,
+            iou_type="bbox",
+        )
 
         # =============================================================================
         # 11. VAL EVALUATION (Loss)
         # =============================================================================
-
         logger.info("🧪 Starting val evaluation (loss)")
-        model.train()
+        model.train()  # (bewusst: Loss-Forward in train(), aber mit no_grad)
         val_loss = 0.0
         with torch.no_grad():
             for images, targets in val_dataloader:
                 if images is None or targets is None:
                     continue
                 images, processed_targets = model_input_format(images, targets, model_need, device)
-
                 loss_dict = model(images, processed_targets)
                 losses = sum(loss for loss in loss_dict.values())
                 val_loss += losses.item()
-        avg_val_loss = val_loss / len(val_dataloader)
+
+        avg_val_loss = val_loss / max(1, len(val_dataloader))
         logger.info(f"🧪 Val Loss: {avg_val_loss:.4f}")
-        writer.add_scalar("Val/Loss", avg_val_loss, cfg.training.epochs)
+        # Hinweis: Epochen-Index für TB – hier 'epoch' statt 'cfg.training.epochs' sinnvoller,
+        # sonst wird immer in dieselbe Step-Nummer geschrieben.
+        writer.add_scalar("Val/Loss", avg_val_loss, epoch)
 
+        # =============================================================================
+        # 12. COCO EVALUATION (Metrics)
+        # =============================================================================
+        def _get(m: dict, key: str, default=None):
+            return m[key] if (m is not None and key in m) else default
 
+        def _get_float(m: dict, key: str):
+            v = _get(m, key, None)
+            try:
+                return float(v) if v is not None else None
+            except Exception:
+                return None
 
-        # --- TensorBoard Logging (Epoche) ---
-        m = evaluate_coco_from_loader(model, val_dataloader, contig_to_catid, device, "bbox")
+        # Wichtig: Keyword-Argumente, damit 'device' nicht mit 'iou_type' vertauscht wird
+        m = evaluate_coco_from_loader(
+            model=model,
+            data_loader=val_dataloader,
+            device=device,
+            iou_type="bbox",
+        )
 
         if m is not None:
-            writer.add_scalar("COCO/AP",        m["AP"],        epoch)
-            writer.add_scalar("COCO/AP50",      m["AP50"],      epoch)
-            writer.add_scalar("COCO/AP75",      m["AP75"],      epoch)
-            writer.add_scalar("COCO/AP_small",  m["AP_small"],  epoch)
-            writer.add_scalar("COCO/AP_medium", m["AP_medium"], epoch)
-            writer.add_scalar("COCO/AP_large",  m["AP_large"],  epoch)
+            # --- Gesamtskalare, nur loggen wenn vorhanden ---
+            for k in ("AP","AP50","AP75","AP_small","AP_medium","AP_large",
+                    "AR_1","AR_10","AR_100","AR_small","AR_medium","AR_large"):
+                v = _get_float(m, k)
+                if v is not None and not (isinstance(v, float) and (v != v)):  # kein NaN
+                    writer.add_scalar(f"COCO/{k}", v, epoch)
 
-            writer.add_scalar("COCO/AR_1",      m["AR_1"],      epoch)
-            writer.add_scalar("COCO/AR_10",     m["AR_10"],     epoch)
-            writer.add_scalar("COCO/AR_100",    m["AR_100"],    epoch)
-            writer.add_scalar("COCO/AR_small",  m["AR_small"],  epoch)
-            writer.add_scalar("COCO/AR_medium", m["AR_medium"], epoch)
-            writer.add_scalar("COCO/AR_large",  m["AR_large"],  epoch)
+            # --- Per-Class (robust) ---
+            per_class = _get(m, "per_class", {}) or {}
+            pc_AP = per_class.get("AP", [])
+            pc_AR = per_class.get("AR", [])
+            cat_ids = per_class.get("cat_ids", list(range(len(pc_AP))))  # Fallback
 
-            # --- Per-Class als Histogramme ---
-            pc_AP = np.array(m["per_class"]["AP"], dtype=float)
-            pc_AR = np.array(m["per_class"]["AR"], dtype=float)
-            writer.add_histogram("COCO/PerClass/AP", pc_AP, epoch)
-            writer.add_histogram("COCO/PerClass/AR", pc_AR, epoch)
+            # Nur loggen, wenn überhaupt Werte vorhanden sind
+            if isinstance(pc_AP, (list, tuple)) and len(pc_AP) > 0:
+                pc_AP = np.array(pc_AP, dtype=float)
+                writer.add_histogram("COCO/PerClass/AP", pc_AP, epoch)
+            if isinstance(pc_AR, (list, tuple)) and len(pc_AR) > 0:
+                pc_AR = np.array(pc_AR, dtype=float)
+                writer.add_histogram("COCO/PerClass/AR", pc_AR, epoch)
 
-            # (Optional) zusätzlich einzelne Scalars je Klasse
-            for cat_id, ap, ar in zip(m["per_class"]["cat_ids"], pc_AP, pc_AR):
-                writer.add_scalar(f"COCO/PerClass/AP/{cat_id}", float(ap), epoch)
-                writer.add_scalar(f"COCO/PerClass/AR/{cat_id}", float(ar), epoch)
+            # Einzelwerte je Klasse (nur, wenn Dimensionen passen)
+            if isinstance(cat_ids, (list, tuple)) and len(cat_ids) == len(pc_AP) == len(pc_AR):
+                for cat_id, ap, ar in zip(cat_ids, pc_AP, pc_AR):
+                    if ap == ap:  # not NaN
+                        writer.add_scalar(f"COCO/PerClass/AP/{cat_id}", float(ap), epoch)
+                    if ar == ar:
+                        writer.add_scalar(f"COCO/PerClass/AR/{cat_id}", float(ar), epoch)
 
             writer.flush()
+        else:
+            logger.warning("COCO-Evaluation lieferte kein Ergebnis (m is None) – überspringe TB-Logging.")
 
         # --- Scheduler Step ---
         if use_scheduler:
@@ -774,10 +804,13 @@ def metrics_from_cm(cm_ext: np.ndarray):
     }
 
 class COCOWrapper:
-    """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH)."""
+    """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
+    ohne Zusatz-Keys (z. B. image_id) zu verlieren.
+    """
 
     def __init__(self, base_tf, inputsize_x, inputsize_y):
-        # Ergänze Resize auf Modell-Inputgröße vor die eigentliche Augmentierung
+        # HINWEIS: Resize übernimmt hier unverändert (inputsize_x, inputsize_y),
+        # wie in deinem Originalcode.
         self.base_tf = T.Compose(
             [
                 T.Resize((inputsize_x, inputsize_y)),
@@ -786,65 +819,89 @@ class COCOWrapper:
         )
 
     def __call__(self, img, target):
-        # Canvas-Size (H,W)
-        if hasattr(img, "size"):
-            w, h = img.size  # PIL: (W,H)
-        elif hasattr(img, "shape") and len(img.shape) == 3:
+        # Canvas-Size bestimmen (H, W)
+        if hasattr(img, "size"):  # PIL: (W, H)
+            w, h = img.size
+        elif hasattr(img, "shape") and len(img.shape) == 3:  # Tensor: CxHxW
             _, h, w = img.shape
         else:
-            h = w = None
+            h = w = None  # wird von BoundingBoxes für einige Ops benötigt
 
+        # Original-Target flach kopieren, um Keys nachher ggf. zu restaurieren
+        original_target = target if isinstance(target, dict) else None
+
+        # --- Eingaben normalisieren -> Dict mit BoundingBoxes im Format XYWH ---
         if isinstance(target, list):
-            boxes = []
-            labels = []
+            # Liste aus COCO-Annots -> Minimales Dict (XYWH + labels)
+            boxes, labels = [], []
             for ann in target:
                 bbox = ann.get("bbox")
-                cid = ann.get("category_id", 0)
                 if bbox is None:
                     continue
-                x, y, bw, bh = bbox  # COCO XYWH (Pixel)
+                x, y, bw, bh = bbox  # COCO: XYWH
                 boxes.append([x, y, bw, bh])
-                labels.append(cid)
-            boxes_t = torch.tensor(boxes, dtype=torch.float32) if len(boxes) > 0 else torch.zeros((0, 4), dtype=torch.float32)
-            labels_t = torch.tensor(labels, dtype=torch.int64) if len(labels) > 0 else torch.zeros((0,), dtype=torch.int64)
-            target = {"boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)), "labels": labels_t}
+                labels.append(ann.get("category_id", 0))
+
+            boxes_t = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0, 4), dtype=torch.float32)
+            labels_t = torch.tensor(labels, dtype=torch.int64) if labels else torch.zeros((0,), dtype=torch.int64)
+
+            target = {
+                "boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)),
+                "labels": labels_t,
+            }
+
         elif isinstance(target, dict):
-            boxes = target.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
-            labels = target.get("labels", torch.zeros((0,), dtype=torch.int64))
-            boxes = BoundingBoxes(torch.as_tensor(boxes, dtype=torch.float32), format="XYWH", canvas_size=(h, w))
+            # Dict: ALLE Keys erhalten, nur boxes/labels sauber in tv_tensors packen
+            tgt = dict(target)  # flache Kopie
+            boxes = tgt.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
+            labels = tgt.get("labels", torch.zeros((0,), dtype=torch.int64))
+
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
             labels = torch.as_tensor(labels, dtype=torch.int64)
-            target = {"boxes": boxes, "labels": labels}
 
+            tgt["boxes"] = BoundingBoxes(boxes, format="XYWH", canvas_size=(h, w))
+            tgt["labels"] = labels
+            target = tgt
+
+        else:
+            raise TypeError(f"COCOWrapper: unerwarteter target-Typ {type(target)}")
+
+        # --- Transforms anwenden ---
         img, target = self.base_tf(img, target)
-        # Zurück zu Standard-Tensoren (XYWH) ohne tv_tensors.
-        bb = target.get("boxes") if isinstance(target, dict) else None
-        if isinstance(bb, BoundingBoxes):
-            boxes_t = torch.as_tensor(bb, dtype=torch.float32)
-            fmt = getattr(bb, "format", None)
-            fmt_str = fmt.lower() if isinstance(fmt, str) else None
-            if fmt_str and fmt_str != "xywh":
-                from torchvision.ops import box_convert
 
-                boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
-            target["boxes"] = boxes_t
+        # --- BoundingBoxes zurück in normalen Tensor (XYWH) ---
+        if isinstance(target, dict):
+            bb = target.get("boxes", None)
+            if isinstance(bb, BoundingBoxes):
+                boxes_t = torch.as_tensor(bb, dtype=torch.float32)
+                # Falls ein Transform das Format geändert hat, zurück auf XYWH bringen
+                fmt = getattr(bb, "format", None)
+                fmt_str = fmt.lower() if isinstance(fmt, str) else None
+                if fmt_str and fmt_str != "xywh":
+                    boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
+                target["boxes"] = boxes_t
+            elif bb is not None:
+                target["boxes"] = torch.as_tensor(bb, dtype=torch.float32)
+            else:
+                target["boxes"] = torch.zeros((0, 4), dtype=torch.float32)
+
+            # --- Zusatz-Keys restaurieren, falls während der Transforms verloren ---
+            if original_target is not None and isinstance(original_target, dict):
+                for k, v in original_target.items():
+                    if k not in target:
+                        target[k] = v
+
+            # Dtypes defensiv angleichen (ohne Logik/Geometrie zu ändern)
+            if "labels" in target:
+                target["labels"] = torch.as_tensor(target["labels"], dtype=torch.int64)
+            if "iscrowd" in target:
+                target["iscrowd"] = torch.as_tensor(target["iscrowd"], dtype=torch.int64)
+            if "area" in target and torch.is_tensor(target["area"]):
+                target["area"] = target["area"].to(torch.float32)
+            if "image_id" in target:
+                target["image_id"] = torch.as_tensor(target["image_id"], dtype=torch.int64)
+
         return img, target
-    
-@torch.no_grad()
-def _maybe_to_xywh_abs(bboxes_xywh: torch.Tensor,
-                       img_w: int,
-                       img_h: int) -> torch.Tensor:
-    """
-    Erwartet GT-Boxen im XYWH-Format. Falls normalisiert (<=1.5),
-    skaliert auf Pixelkoordinaten.
-    """
-    if bboxes_xywh.numel() == 0:
-        return bboxes_xywh
-    # Heuristik: wenn alle Werte <= 1.5, behandeln als normalisiert.
-    if float(bboxes_xywh.max()) <= 1.5:
-        scale = torch.tensor([img_w, img_h, img_w, img_h], dtype=bboxes_xywh.dtype, device=bboxes_xywh.device)
-        return bboxes_xywh * scale
-    return bboxes_xywh
-
 
 def _get_img_wh_from_target(tgt: Dict[str, Any],
                             img_tensor: Optional[torch.Tensor]) -> (int, int):
@@ -872,8 +929,6 @@ def _get_img_wh_from_target(tgt: Dict[str, Any],
 @torch.no_grad()
 def _build_coco_gt_from_loader(
     data_loader,
-    contig_to_catid: Dict[int, int],
-    device: torch.device
 ) -> COCO:
     """
     Erstellt ein COCO-GT-Objekt (in-memory) aus dem DataLoader.
@@ -883,50 +938,67 @@ def _build_coco_gt_from_loader(
       - "labels" (contiguous ids, die über contig_to_catid auf COCO cat_id gemappt werden),
       - optional: "width"/"height" oder "orig_size"/"size".
     """
-    images = []
-    annotations = []
+    images: List[Dict[str, Any]] = []
+    annotations: List[Dict[str, Any]] = []
     ann_id = 1  # laufende ID
 
-    # categories aus Mapping ableiten (Namen optional)
-    categories = [{"id": int(coco_id), "name": str(coco_id)} for coco_id in sorted(set(contig_to_catid.values()))]
-
-    # Einmal durch den Loader iterieren (eval: shuffle=False)
+    # 1) Labels sammeln, um Kategorien 1..K zu definieren
+    seen_labels = set()
     for batch in data_loader:
-        # batch = (images, targets) oder nur targets – je nach collate_fn
-        if isinstance(batch, (list, tuple)) and len(batch) == 2:
-            imgs, tgts = batch
-            # auf CPU lassen – wir brauchen hier nur Meta/Boxen
-        else:
-            # Unerwartetes Format
-            raise ValueError("Unerwartetes Batch-Format. Erwartet (images, targets).")
+        imgs, tgts = batch
+        for tgt in tgts:
+            lbs = tgt["labels"]
+            if isinstance(lbs, torch.Tensor):
+                lbs = lbs.cpu().tolist()
+            else:
+                lbs = list(lbs)
+            seen_labels.update(int(l) for l in lbs)
+
+    categories = [{"id": int(l), "name": str(int(l))} for l in sorted(seen_labels)]
+
+    # 2) GT aufbauen
+    for batch in data_loader:
+        imgs, tgts = batch
 
         for img, tgt in zip(imgs, tgts):
             img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
             img_w, img_h = _get_img_wh_from_target(tgt, img)
 
-            # Image-Eintrag
             images.append({
                 "id": img_id,
                 "width": img_w,
                 "height": img_h,
-                # "file_name" optional
             })
 
-            # GT-Boxen lesen (XYWH)
             gt_boxes = tgt["boxes"]
             if isinstance(gt_boxes, torch.Tensor):
                 gt_boxes = gt_boxes.clone().cpu()
             else:
                 gt_boxes = torch.as_tensor(gt_boxes)
 
-            gt_boxes = _maybe_to_xywh_abs(gt_boxes, img_w, img_h)
+            # Falls normalisiert (selten), in Pixel skalieren
+            if gt_boxes.numel() > 0 and float(gt_boxes.max()) <= 1.5 and img_w > 0 and img_h > 0:
+                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h],
+                                          dtype=gt_boxes.dtype, device=gt_boxes.device)
+                gt_boxes = gt_boxes * scale_xyxy
+
+            # XYXY -> XYWH
+            if gt_boxes.numel() > 0:
+                x1 = gt_boxes[:, 0]
+                y1 = gt_boxes[:, 1]
+                x2 = gt_boxes[:, 2]
+                y2 = gt_boxes[:, 3]
+                w = (x2 - x1).clamp(min=0)
+                h = (y2 - y1).clamp(min=0)
+                gt_boxes = torch.stack([x1, y1, w, h], dim=1)
+
             gt_labels = tgt["labels"]
             if isinstance(gt_labels, torch.Tensor):
                 gt_labels = gt_labels.cpu()
 
             for b, l in zip(gt_boxes, gt_labels):
                 x, y, w, h = [float(v) for v in b.tolist()]
-                coco_cat = int(contig_to_catid[int(l)])
+                coco_cat = int(l)  # bereits 1..K
                 annotations.append({
                     "id": ann_id,
                     "image_id": img_id,
@@ -937,10 +1009,9 @@ def _build_coco_gt_from_loader(
                 })
                 ann_id += 1
 
-    # COCO-Objekt aus Dict erstellen
     coco = COCO()
     coco.dataset = {
-        "info": {"description": "in-memory GT", "version": "1.0"},
+        "info": {"description": "in-memory GT (1..K)", "version": "1.0"},
         "licenses": [],
         "images": images,
         "annotations": annotations,
@@ -949,12 +1020,10 @@ def _build_coco_gt_from_loader(
     coco.createIndex()
     return coco
 
-
 @torch.no_grad()
 def evaluate_coco_from_loader(
     model,
     data_loader,
-    contig_to_catid: Dict[int, int],
     device: torch.device,
     iou_type: str = "bbox",
 ):
@@ -963,7 +1032,7 @@ def evaluate_coco_from_loader(
     GT kommt vollständig aus dem DataLoader.
     """
     # 1) COCO-GT aus Loader aufbauen
-    coco_gt = _build_coco_gt_from_loader(data_loader, contig_to_catid, device)
+    coco_gt = _build_coco_gt_from_loader(data_loader)
 
     # 2) Inferenz & Predictions ins COCO-JSON-Format (XYWH, absolute Pixel)
     model.eval()
@@ -978,7 +1047,7 @@ def evaluate_coco_from_loader(
 
             boxes_xyxy = out["boxes"].detach().cpu()
             scores = out["scores"].detach().cpu()
-            labels = out["labels"].detach().cpu()
+            labels = out["labels"].detach().cpu()  # 1..K
 
             if boxes_xyxy.numel() > 0:
                 x1 = boxes_xyxy[:, 0]
@@ -992,7 +1061,7 @@ def evaluate_coco_from_loader(
                 for b, s, l in zip(xywh, scores, labels):
                     results.append({
                         "image_id": img_id,
-                        "category_id": int(contig_to_catid[int(l)]),
+                        "category_id": int(l),  # 1..K
                         "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
                         "score": float(s),
                     })
@@ -1008,32 +1077,6 @@ def evaluate_coco_from_loader(
     coco_eval.accumulate()
     coco_eval.summarize()
 
-    # --- Per-Class Metriken aus coco_eval ---
-    prec = coco_eval.eval['precision']  # [T, R, K, A, M]
-    rec  = coco_eval.eval['recall']     # [T, K, A, M]
-
-    cat_ids = coco_gt.getCatIds()
-    K = len(cat_ids)
-
-    # Indexe für "area=all" und maxDets = letztes Element (typ. 100)
-    area_idx = coco_eval.params.areaRngLbl.index('all')
-    m_idx = len(coco_eval.params.maxDets) - 1
-
-    ap_per_class = []
-    ar_per_class = []
-    for k in range(K):
-        p = prec[:, :, k, area_idx, m_idx]  # [T, R]
-        p = p[p > -1]
-        ap = p.mean() if p.size > 0 else float('nan')
-        ap_per_class.append(float(ap))
-
-        r = rec[:, k, area_idx, m_idx]      # [T]
-        r = r[r > -1]
-        ar = r.mean() if r.size > 0 else float('nan')
-        ar_per_class.append(float(ar))
-
-    # Rückgabe der Stats (AP@[.50:.95], AP50, AP75, etc.)
-    # coco_eval.stats: ndarray mit 12 Werten
     metrics = {
         "AP": float(coco_eval.stats[0]),
         "AP50": float(coco_eval.stats[1]),
@@ -1047,18 +1090,16 @@ def evaluate_coco_from_loader(
         "AR_small": float(coco_eval.stats[9]),
         "AR_medium": float(coco_eval.stats[10]),
         "AR_large": float(coco_eval.stats[11]),
-        # Neu: Per-Class
-        "per_class": {
-            "cat_ids": cat_ids,   # COCO category_ids (nicht contig!)
-            "AP": ap_per_class,
-            "AR": ar_per_class,
-        }
     }
     return metrics
 
 
 
 def model_input_format(images, targets, model_need, device):
+    def to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
+        # Eingabe immer xywh -> Ziel xyxy
+        return coco_xywh_to_xyxy(boxes)
+
     if model_need == "Tensor":
         images = torch.stack([image.to(device) for image in images])
 
@@ -1067,14 +1108,33 @@ def model_input_format(images, targets, model_need, device):
             if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
                 boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
                 labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
-                processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
-            elif isinstance(tgt, list) and len(tgt) > 0:
-                target_dict = {"boxes": torch.stack([torch.tensor(ann["bbox"]) for ann in tgt]), "labels": torch.tensor([ann["category_id"] for ann in tgt])}
-                processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
-            else:
-                processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
-    if model_need == "List":
+                # FIX: xywh -> xyxy
+                boxes = to_xyxy(boxes)
+
+                processed_targets.append({
+                    "boxes": boxes.to(device).float(),
+                    "labels": labels.to(device).long()
+                })
+
+            elif isinstance(tgt, list) and len(tgt) > 0:
+                boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
+                labels = torch.tensor([ann["category_id"] for ann in tgt], dtype=torch.long)
+
+                # FIX: xywh -> xyxy
+                boxes = to_xyxy(boxes_xywh)
+
+                processed_targets.append({
+                    "boxes": boxes.to(device),
+                    "labels": labels.to(device)
+                })
+            else:
+                processed_targets.append({
+                    "boxes": torch.empty((0, 4), device=device),
+                    "labels": torch.empty((0,), dtype=torch.long, device=device)
+                })
+
+    elif model_need == "List":
         images = [img.to(device) for img in images]
 
         processed_targets = []
@@ -1082,18 +1142,27 @@ def model_input_format(images, targets, model_need, device):
             if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
                 boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
                 labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
+
+                # FIX: xywh -> xyxy
+                boxes = to_xyxy(boxes)
+
                 processed_targets.append({
                     "boxes": boxes.to(device).float(),
                     "labels": labels.to(device).long()
                 })
+
             elif isinstance(tgt, list) and len(tgt) > 0:
-                target_dict = {
-                    "boxes": torch.stack([torch.tensor(ann["bbox"], dtype=torch.float32) for ann in tgt]),
-                    "labels": torch.tensor([ann["category_id"] for ann in tgt], dtype=torch.long)
-                }
-                processed_targets.append({k: v.to(device) for k, v in target_dict.items()})
+                boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
+                labels = torch.tensor([ann["category_id"] for ann in tgt], dtype=torch.long)
+
+                # FIX: xywh -> xyxy
+                boxes = to_xyxy(boxes_xywh)
+
+                processed_targets.append({
+                    "boxes": boxes.to(device),
+                    "labels": labels.to(device)
+                })
             else:
-                # kein Objekt im Bild
                 processed_targets.append({
                     "boxes": torch.empty((0, 4), device=device),
                     "labels": torch.empty((0,), dtype=torch.long, device=device)
@@ -1102,16 +1171,56 @@ def model_input_format(images, targets, model_need, device):
     return images, processed_targets
 
 
-def build_category_mappings(coco_gt: COCO) -> Tuple[Dict[int, int], Dict[int, int]]:
-    """
-    Erzeugt Mapping von COCO-Category-IDs -> kontinuierliche IDs (1..K)
-    sowie das inverse Mapping (kontinuierlich -> COCO-ID).
-    Hintergrund: Torchvision-Detektionsmodelle erwarten Labels im Bereich [1..K].
-    """
-    cat_ids = sorted(coco_gt.getCatIds())
-    catid_to_contig = {cid: i + 1 for i, cid in enumerate(cat_ids)}  # 0 ist "background" (implizit)
-    contig_to_catid = {v: k for k, v in catid_to_contig.items()}
-    return catid_to_contig, contig_to_catid
+
+class CocoDetWrapped(Dataset):
+    def __init__(self, root, annFile, transforms=None):
+        self.ds = CocoDetection(root=root, annFile=annFile)
+        self.transforms = transforms
+
+    def __len__(self):
+        return len(self.ds)
+
+    def __getitem__(self, idx):
+        img, anns = self.ds[idx]  # anns: List[dict]
+
+        boxes, labels, areas, iscrowd = [], [], [], []
+        for a in anns:
+            x, y, w, h = a["bbox"]              # COCO: xywh
+            boxes.append([x, y, x + w, y + h])  # -> xyxy
+            labels.append(a["category_id"])
+            areas.append(a.get("area", w * h))
+            iscrowd.append(a.get("iscrowd", 0))
+
+        if len(boxes) == 0:
+            boxes = torch.zeros((0, 4), dtype=torch.float32)
+            labels = torch.zeros((0,), dtype=torch.int64)
+            areas = torch.zeros((0,), dtype=torch.float32)
+            iscrowd = torch.zeros((0,), dtype=torch.int64)
+        else:
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+            labels = torch.as_tensor(labels, dtype=torch.int64)
+            areas = torch.as_tensor(areas, dtype=torch.float32)
+            iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
+
+        image_id = torch.tensor(self.ds.ids[idx], dtype=torch.int64)
+
+        target = {
+            "boxes": boxes,
+            "labels": labels,
+            "image_id": image_id,
+            "area": areas,
+            "iscrowd": iscrowd,
+        }
+
+        if self.transforms is not None:
+            img, target = self.transforms(img, target)
+
+        return img, target
+
+
+
+
+
 
 
 if __name__ == "__main__":
