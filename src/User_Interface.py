@@ -56,6 +56,7 @@ def quote_specific_strings(data):
 def dump_yaml_str(data: dict) -> str:
     buf = io.StringIO()
     quoted_data = quote_specific_strings(data)
+    yaml.default_flow_style = False  # Ensure block style for lists
     yaml.dump(quoted_data, buf)
     return buf.getvalue()
 
@@ -69,7 +70,7 @@ def list_dirs(path: Path) -> list[str]:
 
 def list_files(path: Path, suffix=".py") -> list[str]:
     try:
-        return [p.stem for p in sorted(path.iterdir()) if p.is_file() and p.suffix.lower() == suffix]
+        return [p.stem for p in sorted(path.iterdir()) if p.is_file() and p.suffix.lower() == suffix and p.name != "__init__.py"]
     except Exception:
         return []
 
@@ -324,7 +325,7 @@ with col1:
         output_path = Path("conf/config.yaml")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as f:
-            yaml.dump(config, f)
+            f.write(yaml_text)
         st.success(f"Gespeichert: {output_path.resolve()}")
 
         # Start the appropriate training file based on task
