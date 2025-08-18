@@ -3,6 +3,7 @@ import gc
 import importlib
 import os
 import shutil
+from collections import defaultdict
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
@@ -32,6 +33,7 @@ from torchvision.transforms import v2 as T
 from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
 
+from conf.config import AIPipelineConfig
 from utils.PASCAL_Dataset_Loader import PascalDataset
 from utils.YOLO_Dataset_Loader import YoloDataset
 
@@ -83,7 +85,7 @@ def calculate_metrics(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_threshol
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
-def train(cfg: DictConfig):
+def train(cfg: AIPipelineConfig):
     """
     Main function for training the model.
     This function sets up the training environment, loads the model, datasets, and starts the training loop.
