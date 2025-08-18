@@ -2,9 +2,10 @@ import os
 import xml.etree.ElementTree as ET
 
 import torch
-from torch.utils.data import Dataset
 from PIL import Image
+from torch.utils.data import Dataset
 from torchvision.tv_tensors import BoundingBoxes
+
 
 def xyxy_to_xywh(box_xyxy):
     # box_xyxy: [xmin, ymin, xmax, ymax]
@@ -13,14 +14,16 @@ def xyxy_to_xywh(box_xyxy):
     h = max(0.0, y_max - y_min)
     return [x_min, y_min, w, h]
 
+
 class PascalDataset(Dataset):
     """
     Liest Pascal VOC XML-Labels (XYXY in Pixeln) und gibt COCO-XYWH (Pixel) zurück.
     Erwartet:
-      images_dir: JPG/PNG
-      labels_dir: XML mit gleichem Basenamen
+        images_dir: JPG/PNG
+        labels_dir: XML mit gleichem Basenamen
     class_to_id: dict wie {"person": 1, "car": 2, ...}
     """
+
     def __init__(self, images_dir, labels_dir, class_to_id, transform=None, clip_to_image=True):
         self.images_dir = images_dir
         self.labels_dir = labels_dir

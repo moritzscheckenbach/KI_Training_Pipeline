@@ -1,9 +1,12 @@
+import argparse
 import gc
 import importlib
 import os
 import shutil
 from datetime import datetime
 from math import sqrt
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import matplotlib.pyplot as plt
@@ -16,32 +19,21 @@ import yaml
 from hydra.utils import to_absolute_path
 from loguru import logger
 from omegaconf import DictConfig, OmegaConf
-from torch.utils.data import DataLoader
-from torch.utils.data import Dataset
+from pycocotools.coco import COCO
+from pycocotools.cocoeval import COCOeval
+from torch.utils.data import DataLoader, Dataset
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.datasets import CocoDetection
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
 from torchvision.transforms import v2 as T
 from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
 
-from utils.YOLO_Dataset_Loader import YoloDataset
 from utils.PASCAL_Dataset_Loader import PascalDataset
-
-import argparse
-import os
-from pathlib import Path
-from typing import Tuple, Dict, Any, List, Optional
-
-import torch
-from torch.utils.data import DataLoader
-from torchvision.datasets import CocoDetection
-from torchvision.transforms import v2 as T
-from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
-
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
-
-
+from utils.YOLO_Dataset_Loader import YoloDataset
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -69,7 +61,6 @@ def train(cfg: DictConfig):
     else:
         model_name = cfg.model.file
         experiment_name = f"{timestamp}_{model_name}"
-    
 
     experiment_dir = f"trained_models/{model_type}/{experiment_name}"
     os.makedirs(experiment_dir, exist_ok=True)
@@ -172,7 +163,6 @@ def train(cfg: DictConfig):
         train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
         val_dataset = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
         test_dataset = YoloDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf)
-
 
     # TYPE Pascal Dataset
     if dataset_type == "Type_Pascal_V10":
@@ -287,7 +277,6 @@ def train(cfg: DictConfig):
             if images is None or targets is None:
                 continue
 
-
             model_need = "List"
 
             images, processed_targets = model_input_format(images, targets, model_need, device)
@@ -295,7 +284,7 @@ def train(cfg: DictConfig):
             ########    WIE ARCHITEKTUR??????
             optimizer.zero_grad()
             model_output = model(images, processed_targets)
-            loss_dict = model_output #model_output to loss_dict converter !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            loss_dict = model_output  # model_output to loss_dict converter !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             losses = sum(loss for loss in loss_dict.values())
 
             losses.backward()
@@ -350,12 +339,10 @@ def train(cfg: DictConfig):
         for name, p in model.named_parameters():
             writer.add_histogram(f"Params/{name}", p.detach().cpu().numpy(), epoch)
 
-
-
         # -----------------------------
         # Evaluation (COCO mAP)
         # -----------------------------
-        #coco_val = COCO(str(annFile))
+        # coco_val = COCO(str(annFile))
         evaluate_coco_from_loader(
             model=model,
             data_loader=val_dataloader,
@@ -407,8 +394,7 @@ def train(cfg: DictConfig):
 
         if m is not None:
             # --- Gesamtskalare, nur loggen wenn vorhanden ---
-            for k in ("AP","AP50","AP75","AP_small","AP_medium","AP_large",
-                    "AR_1","AR_10","AR_100","AR_small","AR_medium","AR_large"):
+            for k in ("AP", "AP50", "AP75", "AP_small", "AP_medium", "AP_large", "AR_1", "AR_10", "AR_100", "AR_small", "AR_medium", "AR_large"):
                 v = _get_float(m, k)
                 if v is not None and not (isinstance(v, float) and (v != v)):  # kein NaN
                     writer.add_scalar(f"COCO/{k}", v, epoch)
@@ -466,14 +452,13 @@ def train(cfg: DictConfig):
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "train_loss": avg_train_loss,
-                #"val_loss": avg_val_loss,
+                # "val_loss": avg_val_loss,
                 "config": cfg,
             },
             f"{experiment_dir}/models/last_model.pth",
         )
 
-
-        #SPÄTER avg_train_loss DURCH avg_val_loss ERSETZEN!!!!!!!!!!!!!!
+        # SPÄTER avg_train_loss DURCH avg_val_loss ERSETZEN!!!!!!!!!!!!!!
         # Model Checkpointing
         if avg_train_loss < best_val_loss:
             best_val_loss = avg_train_loss
@@ -803,6 +788,7 @@ def metrics_from_cm(cm_ext: np.ndarray):
         "accuracy": accuracy,
     }
 
+
 class COCOWrapper:
     """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
     ohne Zusatz-Keys (z. B. image_id) zu verlieren.
@@ -903,8 +889,8 @@ class COCOWrapper:
 
         return img, target
 
-def _get_img_wh_from_target(tgt: Dict[str, Any],
-                            img_tensor: Optional[torch.Tensor]) -> (int, int):
+
+def _get_img_wh_from_target(tgt: Dict[str, Any], img_tensor: Optional[torch.Tensor]) -> (int, int):
     """
     Versucht width/height robust aus dem Target zu lesen.
     Fallback: Tensorgröße (C,H,W) falls verfügbar.
@@ -964,11 +950,13 @@ def _build_coco_gt_from_loader(
             img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
             img_w, img_h = _get_img_wh_from_target(tgt, img)
 
-            images.append({
-                "id": img_id,
-                "width": img_w,
-                "height": img_h,
-            })
+            images.append(
+                {
+                    "id": img_id,
+                    "width": img_w,
+                    "height": img_h,
+                }
+            )
 
             gt_boxes = tgt["boxes"]
             if isinstance(gt_boxes, torch.Tensor):
@@ -978,8 +966,7 @@ def _build_coco_gt_from_loader(
 
             # Falls normalisiert (selten), in Pixel skalieren
             if gt_boxes.numel() > 0 and float(gt_boxes.max()) <= 1.5 and img_w > 0 and img_h > 0:
-                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h],
-                                          dtype=gt_boxes.dtype, device=gt_boxes.device)
+                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h], dtype=gt_boxes.dtype, device=gt_boxes.device)
                 gt_boxes = gt_boxes * scale_xyxy
 
             # XYXY -> XYWH
@@ -999,14 +986,16 @@ def _build_coco_gt_from_loader(
             for b, l in zip(gt_boxes, gt_labels):
                 x, y, w, h = [float(v) for v in b.tolist()]
                 coco_cat = int(l)  # bereits 1..K
-                annotations.append({
-                    "id": ann_id,
-                    "image_id": img_id,
-                    "category_id": coco_cat,
-                    "bbox": [x, y, w, h],
-                    "area": float(max(w, 0.0) * max(h, 0.0)),
-                    "iscrowd": 0,
-                })
+                annotations.append(
+                    {
+                        "id": ann_id,
+                        "image_id": img_id,
+                        "category_id": coco_cat,
+                        "bbox": [x, y, w, h],
+                        "area": float(max(w, 0.0) * max(h, 0.0)),
+                        "iscrowd": 0,
+                    }
+                )
                 ann_id += 1
 
     coco = COCO()
@@ -1019,6 +1008,7 @@ def _build_coco_gt_from_loader(
     }
     coco.createIndex()
     return coco
+
 
 @torch.no_grad()
 def evaluate_coco_from_loader(
@@ -1059,12 +1049,14 @@ def evaluate_coco_from_loader(
                 xywh = torch.stack([x1, y1, w, h], dim=1)
 
                 for b, s, l in zip(xywh, scores, labels):
-                    results.append({
-                        "image_id": img_id,
-                        "category_id": int(l),  # 1..K
-                        "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
-                        "score": float(s),
-                    })
+                    results.append(
+                        {
+                            "image_id": img_id,
+                            "category_id": int(l),  # 1..K
+                            "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
+                            "score": float(s),
+                        }
+                    )
 
     if len(results) == 0:
         print("WARN: Keine Predictions erzeugt – Evaluation wird übersprungen.")
@@ -1094,7 +1086,6 @@ def evaluate_coco_from_loader(
     return metrics
 
 
-
 def model_input_format(images, targets, model_need, device):
     def to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
         # Eingabe immer xywh -> Ziel xyxy
@@ -1112,10 +1103,7 @@ def model_input_format(images, targets, model_need, device):
                 # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes)
 
-                processed_targets.append({
-                    "boxes": boxes.to(device).float(),
-                    "labels": labels.to(device).long()
-                })
+                processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
 
             elif isinstance(tgt, list) and len(tgt) > 0:
                 boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
@@ -1124,15 +1112,9 @@ def model_input_format(images, targets, model_need, device):
                 # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes_xywh)
 
-                processed_targets.append({
-                    "boxes": boxes.to(device),
-                    "labels": labels.to(device)
-                })
+                processed_targets.append({"boxes": boxes.to(device), "labels": labels.to(device)})
             else:
-                processed_targets.append({
-                    "boxes": torch.empty((0, 4), device=device),
-                    "labels": torch.empty((0,), dtype=torch.long, device=device)
-                })
+                processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
     elif model_need == "List":
         images = [img.to(device) for img in images]
@@ -1146,10 +1128,7 @@ def model_input_format(images, targets, model_need, device):
                 # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes)
 
-                processed_targets.append({
-                    "boxes": boxes.to(device).float(),
-                    "labels": labels.to(device).long()
-                })
+                processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
 
             elif isinstance(tgt, list) and len(tgt) > 0:
                 boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
@@ -1158,18 +1137,11 @@ def model_input_format(images, targets, model_need, device):
                 # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes_xywh)
 
-                processed_targets.append({
-                    "boxes": boxes.to(device),
-                    "labels": labels.to(device)
-                })
+                processed_targets.append({"boxes": boxes.to(device), "labels": labels.to(device)})
             else:
-                processed_targets.append({
-                    "boxes": torch.empty((0, 4), device=device),
-                    "labels": torch.empty((0,), dtype=torch.long, device=device)
-                })
+                processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
     return images, processed_targets
-
 
 
 class CocoDetWrapped(Dataset):
@@ -1185,7 +1157,7 @@ class CocoDetWrapped(Dataset):
 
         boxes, labels, areas, iscrowd = [], [], [], []
         for a in anns:
-            x, y, w, h = a["bbox"]              # COCO: xywh
+            x, y, w, h = a["bbox"]  # COCO: xywh
             boxes.append([x, y, x + w, y + h])  # -> xyxy
             labels.append(a["category_id"])
             areas.append(a.get("area", w * h))
@@ -1216,11 +1188,6 @@ class CocoDetWrapped(Dataset):
             img, target = self.transforms(img, target)
 
         return img, target
-
-
-
-
-
 
 
 if __name__ == "__main__":

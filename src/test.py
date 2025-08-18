@@ -2,16 +2,18 @@
 import argparse
 import os
 from pathlib import Path
-from typing import Tuple, Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
-from torch.utils.data import DataLoader
-from torchvision.datasets import CocoDetection
-from torchvision.transforms import v2 as T
-from torchvision.models.detection import fasterrcnn_resnet50_fpn, FasterRCNN_ResNet50_FPN_Weights
-
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from torch.utils.data import DataLoader
+from torchvision.datasets import CocoDetection
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
+from torchvision.transforms import v2 as T
 
 
 # -----------------------------
@@ -64,6 +66,7 @@ class CocoDetWrapped(CocoDetection):
             img, target = self._transforms(img, target)
 
         return img, target
+
     @property
     def num_classes(self):
         return 4
@@ -89,6 +92,7 @@ def get_model(num_classes: int, pretrained: bool = True):
 
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
 
@@ -101,9 +105,8 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=50,
         warmup_factor = 1.0 / 1000
         warmup_iters = min(1000, len(data_loader) - 1)
         from torch.optim.lr_scheduler import LinearLR
-        lr_scheduler = LinearLR(
-            optimizer, start_factor=warmup_factor, total_iters=warmup_iters
-        )
+
+        lr_scheduler = LinearLR(optimizer, start_factor=warmup_factor, total_iters=warmup_iters)
 
     for i, (images, targets) in enumerate(data_loader):
         images = list(img.to(device) for img in images)
@@ -134,8 +137,7 @@ def train_one_epoch(model, optimizer, data_loader, device, epoch, print_freq=50,
 
 def main():
     parser = argparse.ArgumentParser(description="Train Faster R-CNN R50-FPN on COCO-like data (labels 1..K only)")
-    parser.add_argument("--data_root", type=str, default="datasets/object_detection/Type_COCO/Test_Duckiebots",
-                        help="Pfad zum Datensatz-Root (enthält train/, valid/, test/)")
+    parser.add_argument("--data_root", type=str, default="datasets/object_detection/Type_COCO/Test_Duckiebots", help="Pfad zum Datensatz-Root (enthält train/, valid/, test/)")
     parser.add_argument("--train_images", type=str, default="train")
     parser.add_argument("--val_images", type=str, default="valid")
     parser.add_argument("--train_ann", type=str, default="train/_annotations.coco.json")
@@ -229,8 +231,7 @@ def main():
 
 
 @torch.no_grad()
-def _get_img_wh_from_target(tgt: Dict[str, Any],
-                            img_tensor: Optional[torch.Tensor]) -> (int, int):
+def _get_img_wh_from_target(tgt: Dict[str, Any], img_tensor: Optional[torch.Tensor]) -> (int, int):
     """
     Versucht width/height robust aus dem Target zu lesen.
     Fallback: Tensorgröße (C,H,W) falls verfügbar.
@@ -290,11 +291,13 @@ def _build_coco_gt_from_loader(
             img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
             img_w, img_h = _get_img_wh_from_target(tgt, img)
 
-            images.append({
-                "id": img_id,
-                "width": img_w,
-                "height": img_h,
-            })
+            images.append(
+                {
+                    "id": img_id,
+                    "width": img_w,
+                    "height": img_h,
+                }
+            )
 
             gt_boxes = tgt["boxes"]
             if isinstance(gt_boxes, torch.Tensor):
@@ -304,8 +307,7 @@ def _build_coco_gt_from_loader(
 
             # Falls normalisiert (selten), in Pixel skalieren
             if gt_boxes.numel() > 0 and float(gt_boxes.max()) <= 1.5 and img_w > 0 and img_h > 0:
-                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h],
-                                          dtype=gt_boxes.dtype, device=gt_boxes.device)
+                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h], dtype=gt_boxes.dtype, device=gt_boxes.device)
                 gt_boxes = gt_boxes * scale_xyxy
 
             # XYXY -> XYWH
@@ -325,14 +327,16 @@ def _build_coco_gt_from_loader(
             for b, l in zip(gt_boxes, gt_labels):
                 x, y, w, h = [float(v) for v in b.tolist()]
                 coco_cat = int(l)  # bereits 1..K
-                annotations.append({
-                    "id": ann_id,
-                    "image_id": img_id,
-                    "category_id": coco_cat,
-                    "bbox": [x, y, w, h],
-                    "area": float(max(w, 0.0) * max(h, 0.0)),
-                    "iscrowd": 0,
-                })
+                annotations.append(
+                    {
+                        "id": ann_id,
+                        "image_id": img_id,
+                        "category_id": coco_cat,
+                        "bbox": [x, y, w, h],
+                        "area": float(max(w, 0.0) * max(h, 0.0)),
+                        "iscrowd": 0,
+                    }
+                )
                 ann_id += 1
 
     coco = COCO()
@@ -386,12 +390,14 @@ def evaluate_coco_from_loader(
                 xywh = torch.stack([x1, y1, w, h], dim=1)
 
                 for b, s, l in zip(xywh, scores, labels):
-                    results.append({
-                        "image_id": img_id,
-                        "category_id": int(l),  # 1..K
-                        "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
-                        "score": float(s),
-                    })
+                    results.append(
+                        {
+                            "image_id": img_id,
+                            "category_id": int(l),  # 1..K
+                            "bbox": [float(b[0]), float(b[1]), float(b[2]), float(b[3])],
+                            "score": float(s),
+                        }
+                    )
 
     if len(results) == 0:
         print("WARN: Keine Predictions erzeugt – Evaluation wird übersprungen.")
