@@ -3,7 +3,6 @@ import gc
 import importlib
 import os
 import shutil
-from collections import defaultdict
 from datetime import datetime
 from math import sqrt
 from pathlib import Path
@@ -29,6 +28,7 @@ from torchvision.models.detection import (
     FasterRCNN_ResNet50_FPN_Weights,
     fasterrcnn_resnet50_fpn,
 )
+from torchvision.ops import box_convert
 from torchvision.transforms import v2 as T
 from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
@@ -38,54 +38,11 @@ from utils.PASCAL_Dataset_Loader import PascalDataset
 from utils.YOLO_Dataset_Loader import YoloDataset
 
 
-def calculate_metrics(pred_boxes, pred_labels, gt_boxes, gt_labels, iou_threshold=0.5):
-    """
-    Sehr vereinfachte Berechnung von Accuracy, Precision, Recall, mAP.
-    - pred_boxes, gt_boxes: List[Tensor] pro Bild
-    - pred_labels, gt_labels: List[Tensor] pro Bild
-    """
-    tp = 0
-    fp = 0
-    fn = 0
-    total = 0
-
-    for pb, pl, gb, gl in zip(pred_boxes, pred_labels, gt_boxes, gt_labels):
-        total += len(gl)
-        matched = set()
-        for i, pbox in enumerate(pb):
-            ious = []
-            for j, gbox in enumerate(gb):
-                # IoU berechnen
-                ixmin = max(pbox[0], gbox[0])
-                iymin = max(pbox[1], gbox[1])
-                ixmax = min(pbox[0] + pbox[2], gbox[0] + gbox[2])
-                iymax = min(pbox[1] + pbox[3], gbox[1] + gbox[3])
-                iw = max(0, ixmax - ixmin)
-                ih = max(0, iymax - iymin)
-                inter = iw * ih
-                union = pbox[2] * pbox[3] + gbox[2] * gbox[3] - inter
-                iou = inter / union if union > 0 else 0
-                ious.append((iou, j))
-            # Max IoU wählen
-            if ious:
-                best_iou, best_j = max(ious, key=lambda x: x[0])
-                if best_iou >= iou_threshold and pl[i] == gl[best_j] and best_j not in matched:
-                    tp += 1
-                    matched.add(best_j)
-                else:
-                    fp += 1
-        fn += len(gb) - len(matched)
-
-    accuracy = tp / total if total > 0 else 0
-    precision = tp / (tp + fp) if tp + fp > 0 else 0
-    recall = tp / (tp + fn) if tp + fn > 0 else 0
-    mAP = precision  # stark vereinfacht, hier ≈ Precision
-
-    return accuracy, precision, recall, mAP
-
-
 @hydra.main(version_base=None, config_path="conf", config_name="config")
-def train(cfg: AIPipelineConfig):
+def main(cfg: AIPipelineConfig):
+    print(f"Config:\n{cfg}")
+    print(f"Datentyp der Config: {type(cfg)}")
+    return
     """
     Main function for training the model.
     This function sets up the training environment, loads the model, datasets, and starts the training loop.
@@ -298,7 +255,6 @@ def train(cfg: AIPipelineConfig):
 
     best_val_loss = float("inf")
     patience_counter = 0
-    log_interval = 20  # alle 20 Batches loggen
 
     logger.info(f"🎯 Starting training loop for {cfg.training.epochs} epochs")
     logger.info(f"⚙️ Batch size: {cfg.training.batch_size}, Learning rate: {cfg.training.learning_rate}")
@@ -321,10 +277,6 @@ def train(cfg: AIPipelineConfig):
         # ------------------------
         model.train()
         train_loss = 0.0
-        batch_loss_components = defaultdict(float)
-
-        # Variables für Image-Logging
-        first_batch_logged = False
 
         for i, (images, targets) in enumerate(train_dataloader):
             if images is None or targets is None:
@@ -387,9 +339,6 @@ def train(cfg: AIPipelineConfig):
                 writer.add_image("Train/GT_vs_Pred", grid, epoch)
 
         avg_train_loss = train_loss / len(train_dataloader)
-        # Durchschnittliche Loss-Komponenten für Epoch
-        for k in batch_loss_components:
-            batch_loss_components[k] /= len(train_dataloader)
 
         # Parameter-Histogramme (einmal pro Epoche)
         for name, p in model.named_parameters():
@@ -420,17 +369,6 @@ def train(cfg: AIPipelineConfig):
                 loss_dict = model(images, processed_targets)
                 losses = sum(loss for loss in loss_dict.values())
                 val_loss += losses.item()
-
-                # Validation Loss-Komponenten sammeln
-                for k, v in loss_dict.items():
-                    val_loss_components[k] += v.item() if hasattr(v, "item") else v
-
-                # Dummy Prediction für Metrics (hier sollten echte Predictions verwendet werden)
-                preds = [{"boxes": torch.rand((len(t["labels"]), 4)) * 100, "labels": t["labels"]} for t in processed_targets]
-                all_preds.extend([p["boxes"].cpu() for p in preds])
-                all_pred_labels.extend([p["labels"].cpu() for p in preds])
-                all_gts.extend([t["boxes"].cpu() for t in processed_targets])
-                all_gt_labels.extend([t["labels"].cpu() for t in processed_targets])
 
         avg_val_loss = val_loss / max(1, len(val_dataloader))
         logger.info(f"🧪 Val Loss: {avg_val_loss:.4f}")
@@ -538,7 +476,6 @@ def train(cfg: AIPipelineConfig):
                 "train_loss": avg_train_loss,
                 "val_loss": avg_train_loss,
                 "optimizer_state_dict": optimizer.state_dict(),
-                "metrics": {"accuracy": acc, "precision": prec, "recall": rec, "mAP": map_score},
             }
             torch.save(checkpoint_info, f"{experiment_dir}/models/best_model_info.pth")
 
@@ -1259,4 +1196,4 @@ class CocoDetWrapped(Dataset):
 
 
 if __name__ == "__main__":
-    train()
+    main()

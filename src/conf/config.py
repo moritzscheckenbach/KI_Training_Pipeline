@@ -1,5 +1,7 @@
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List
+
+from hydra.core.config_store import ConfigStore
 
 
 @dataclass
@@ -91,9 +93,13 @@ class DatasetConfig:
 
 @dataclass
 class AIPipelineConfig:
-    training: TrainingConfig
-    scheduler: SchedulerConfig
-    optimizer: OptimizerConfig
-    augmentation: AugmentationConfig
-    model: ModelConfig
-    dataset: DatasetConfig
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+    scheduler: SchedulerConfig = field(default_factory=SchedulerConfig)
+    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)
+    augmentation: AugmentationConfig = field(default_factory=AugmentationConfig)
+    model: ModelConfig = field(default_factory=ModelConfig)
+    dataset: DatasetConfig = field(default_factory=DatasetConfig)
+
+
+cs = ConfigStore.instance()
+cs.store(group="schema", name="aipipeline", node=AIPipelineConfig)
