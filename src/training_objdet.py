@@ -42,7 +42,7 @@ from utils.YOLO_Dataset_Loader import YoloDataset
 def main(cfg: AIPipelineConfig):
     print(f"Config:\n{cfg}")
     print(f"Datentyp der Config: {type(cfg)}")
-    return
+    
     """
     Main function for training the model.
     This function sets up the training environment, loads the model, datasets, and starts the training loop.
@@ -131,7 +131,6 @@ def main(cfg: AIPipelineConfig):
         [
             T.ToImage(),
             T.ToDtype(torch.float32, scale=True),
-            T.Resize((inputsize_x, inputsize_y)),
             T.SanitizeBoundingBoxes(),
         ]
     )
@@ -181,6 +180,42 @@ def main(cfg: AIPipelineConfig):
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
     val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
+
+
+
+    # Beispiel: einmal Bild + Target ausgeben (train, val, test)
+    import matplotlib.pyplot as plt
+    import torchvision.transforms.functional as F
+
+    def show_sample(dataloader, name=""):
+        images, targets = next(iter(dataloader))  # einen Batch holen
+        img = images[0]  # erstes Bild im Batch
+        target = targets[0]  # zugehöriges Target
+
+        # Tensor wieder zu einem darstellbaren Bild umwandeln
+        if isinstance(img, torch.Tensor):
+            img = F.to_pil_image(img)
+
+        print(f"\n{name} Sample:")
+        print(f"Image shape: {images[0].shape if isinstance(images[0], torch.Tensor) else type(images[0])}")
+        print(f"Target: {target}")
+
+        # Optional: anzeigen
+        plt.imshow(img)
+        plt.title(f"{name} Example")
+        plt.axis("off")
+        plt.show()
+
+
+    # Nach deinen Dataloader-Definitionen:
+    show_sample(train_dataloader, "Train")
+    show_sample(val_dataloader, "Val")
+    show_sample(test_dataloader, "Test")
+
+
+
+
+    return
 
     # =============================================================================
     # 6. MODEL TO DEVICE
@@ -457,16 +492,15 @@ def main(cfg: AIPipelineConfig):
                 "model_state_dict": model.state_dict(),
                 "optimizer_state_dict": optimizer.state_dict(),
                 "train_loss": avg_train_loss,
-                # "val_loss": avg_val_loss,
+                "val_loss": avg_val_loss,
                 "config": cfg,
             },
             f"{experiment_dir}/models/last_model.pth",
         )
 
-        # SPÄTER avg_train_loss DURCH avg_val_loss ERSETZEN!!!!!!!!!!!!!!
         # Model Checkpointing
-        if avg_train_loss < best_val_loss:
-            best_val_loss = avg_train_loss
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
             patience_counter = 0
 
             torch.save(model.state_dict(), f"{experiment_dir}/models/best_model_weights.pth")
@@ -474,12 +508,12 @@ def main(cfg: AIPipelineConfig):
             checkpoint_info = {
                 "epoch": epoch,
                 "train_loss": avg_train_loss,
-                "val_loss": avg_train_loss,
+                "val_loss": avg_val_loss,
                 "optimizer_state_dict": optimizer.state_dict(),
             }
             torch.save(checkpoint_info, f"{experiment_dir}/models/best_model_info.pth")
 
-            logger.info(f"💾 New best model saved! Val Loss: {avg_train_loss:.4f}")
+            logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
         else:
             patience_counter += 1
             logger.debug(f"   Patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
@@ -651,7 +685,8 @@ def make_gt_vs_pred_grid(imgs_vis: torch.Tensor, targets_list, preds_list):
         img_u8 = tensor_to_uint8(imgs_vis[b_idx])
         # GT
         gt_t = targets_list[b_idx]
-        gt_boxes_xyxy = coco_xywh_to_xyxy(gt_t["boxes"].detach().cpu())
+        # removed conversion: boxes are already in xyxy
+        gt_boxes_xyxy = gt_t["boxes"].detach().cpu()
         gt_labels = gt_t["labels"].detach().cpu()
         gt_img = draw_boxes_on_img(img_u8, gt_boxes_xyxy, gt_labels)
 
@@ -804,8 +839,8 @@ class COCOWrapper:
         # wie in deinem Originalcode.
         self.base_tf = T.Compose(
             [
-                T.Resize((inputsize_x, inputsize_y)),
                 base_tf,
+                T.Resize((inputsize_y, inputsize_x)),
             ]
         )
 
