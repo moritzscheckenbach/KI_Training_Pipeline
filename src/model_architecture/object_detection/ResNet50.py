@@ -190,9 +190,10 @@ class ResNet50ObjectDetection(nn.Module):
 
         return detections
 
-    def get_input_size(self):
-        """Return expected input size as (height, width)"""
-        return (self.input_size, self.input_size)
+
+def get_input_size():
+    """Return expected input size as (height, width)"""
+    return (416, 416)
 
 
 def build_model(num_classes=20, model_type="full"):
@@ -218,7 +219,8 @@ def get_model_info():
 # Test function
 if __name__ == "__main__":
     model = build_model(num_classes=20)
+    model.eval()
     dummy_input = torch.randn(1, 3, 416, 416)
     output = model(dummy_input)
     print("ResNet50 Model loaded successfully!")
-    print(f"Input size: {model.get_input_size()}")
+    print(f"Input size: {get_input_size()}")

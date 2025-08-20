@@ -172,13 +172,10 @@ class SimpleCNN(nn.Module):
                 nn.init.normal_(m.weight, 0, 0.01)
                 nn.init.constant_(m.bias, 0)
 
-    # TODO: Property für Input Size erstellen
-    # @property
-    def get_input_size(self):
 
-        return (self.input_size, self.input_size)
+def get_input_size():
 
-    # property machen
+    return 416, 416
 
 
 def build_model(cfg=None, num_classes=20, model_type="full"):
@@ -200,27 +197,3 @@ def get_model_info():
     Returns model information
     """
     return {"name": "SimpleCNN", "type": "Object Detection", "input_size": (3, 416, 416), "outputs": {"class_scores": "Classification logits", "bbox_coords": "Bounding box coordinates [x, y, w, h]"}}
-
-
-# # Test function
-# if __name__ == "__main__":
-#     # Test the model
-#     model = build_model(num_classes=20)
-
-#     # Create dummy input
-#     dummy_input = torch.randn(1, 3, 416, 416)
-
-#     # Forward pass
-#     output = model(dummy_input)
-
-#     print("Model Output Shapes:")
-#     print(f"Class scores: {output['class_scores'].shape}")
-#     print(f"Bbox coords: {output['bbox_coords'].shape}")
-
-#     # Count parameters
-#     total_params = sum(p.numel() for p in model.parameters())
-#     trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-
-#     print(f"\nModel Statistics:")
-#     print(f"Total parameters: {total_params:,}")
-#     print(f"Trainable parameters: {trainable_params:,}")

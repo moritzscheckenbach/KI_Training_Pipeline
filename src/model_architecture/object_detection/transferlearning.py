@@ -146,6 +146,7 @@ def build_model_tr(cfg=None):
     model.get_trainable_parameters()
     return model
 
+
 def get_input_size(cfg):
 
     model_config_path = Path(cfg.model.transfer_learning.path)
@@ -154,7 +155,7 @@ def get_input_size(cfg):
 
     # Lade die YAML-Datei direkt
     model_config = OmegaConf.load(config_file)
- 
+
     model_type = model_config.model.type
     model_name = model_config.model.file
     """Return expected input size"""

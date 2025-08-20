@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
-from tqdm import tqdm
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -33,6 +32,7 @@ from torchvision.ops import box_convert
 from torchvision.transforms import v2 as T
 from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
+from tqdm import tqdm
 
 from conf.config import AIPipelineConfig
 from utils.PASCAL_Dataset_Loader import PascalDataset
@@ -43,7 +43,7 @@ from utils.YOLO_Dataset_Loader import YoloDataset
 def main(cfg: AIPipelineConfig):
     print(f"Config:\n{cfg}")
     print(f"Datentyp der Config: {type(cfg)}")
-    
+
     """
     Main function for training the model.
     This function sets up the training environment, loads the model, datasets, and starts the training loop.
@@ -121,7 +121,7 @@ def main(cfg: AIPipelineConfig):
     # =============================================================================
 
     if cfg.model.transfer_learning.enabled:
-        inputsize_x, inputsize_y = model_architecture.get_input_size(cfg = cfg)
+        inputsize_x, inputsize_y = model_architecture.get_input_size(cfg=cfg)
     else:
         inputsize_x, inputsize_y = model_architecture.get_input_size()
     logger.info(f"📐 Model input size: {inputsize_x}x{inputsize_y}")
@@ -188,8 +188,6 @@ def main(cfg: AIPipelineConfig):
     val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
 
-
-
     # # Beispiel: einmal Bild + Target ausgeben (train, val, test)
     # import matplotlib.pyplot as plt
     # import torchvision.transforms.functional as F
@@ -212,7 +210,6 @@ def main(cfg: AIPipelineConfig):
     #     plt.title(f"{name} Example")
     #     plt.axis("off")
     #     plt.show()
-
 
     # # Nach deinen Dataloader-Definitionen:
     # show_sample(train_dataloader, "Train")
@@ -321,9 +318,13 @@ def main(cfg: AIPipelineConfig):
             if images is None or targets is None:
                 continue
 
-            model_need = "List"
+            model_need = "Tensor"
 
             images, processed_targets = model_input_format(images, targets, model_need, device)
+            # logger.debug(f"Type Images: {type(images)}")
+            # logger.debug(f"Images: {images}")
+            # logger.debug(f"Type Processed Targets: {type(processed_targets)}")
+            # logger.debug(f"Processed Targets: {processed_targets}")
 
             ########    WIE ARCHITEKTUR??????
             optimizer.zero_grad()
@@ -371,8 +372,12 @@ def main(cfg: AIPipelineConfig):
             if i == 0 and (epoch % log_images_every_n_epochs == 0):
                 with torch.no_grad():
                     model.eval()
-                    imgs_vis = [img.detach().cpu() for img in images[:4]]
-                    preds = model([img.to(device) for img in images[:4]])
+                    if model_need == "Tensor":
+                        imgs_vis = [img.detach().cpu() for img in images[:4]]
+                        preds = model(images[:4])
+                    else:
+                        imgs_vis = [img.detach().cpu() for img in images[:4]]
+                        preds = model([img.to(device) for img in images[:4]])
                     model.train()
                 grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds)
                 writer.add_image("Train/GT_vs_Pred", grid, epoch)
@@ -392,6 +397,7 @@ def main(cfg: AIPipelineConfig):
         #     data_loader=val_dataloader,
         #     device=device,
         #     iou_type="bbox",
+        #     input_format=model_need,
         # )
 
         # =============================================================================
@@ -428,12 +434,12 @@ def main(cfg: AIPipelineConfig):
             except Exception:
                 return None
 
-        # Wichtig: Keyword-Argumente, damit 'device' nicht mit 'iou_type' vertauscht wird
         m = evaluate_coco_from_loader(
             model=model,
             data_loader=val_dataloader,
             device=device,
             iou_type="bbox",
+            input_format=model_need,
         )
 
         if m is not None:
@@ -1055,7 +1061,7 @@ def _build_coco_gt_from_loader(
 
 
 @torch.no_grad()
-def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox"):
+def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input_format="List"):
     model.eval()
 
     results = []
@@ -1064,8 +1070,29 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox"):
     ann_id = 1
 
     for images, targets in tqdm(data_loader, desc="Evaluating"):
-        images = [img.to(device) for img in images]
-        outputs = model(images)
+        if input_format == "Tensor":
+            images_device = torch.stack([img.to(device) for img in images])
+            outputs = model(images_device)
+        else:
+            images_device = [img.to(device) for img in images]
+            outputs = model(images_device)
+
+        # Debug-Ausgaben zum Output-Typ
+        logger.debug(f"eval outputs type={type(outputs)}; len={len(outputs) if hasattr(outputs,'__len__') else 'n/a'}")
+        if isinstance(outputs, (list, tuple)) and len(outputs) > 0 and isinstance(outputs[0], dict):
+            logger.debug(f"eval outputs[0] keys={list(outputs[0].keys())}")
+        else:
+            if isinstance(outputs, dict):
+                logger.warning("Model eval returned dict (vermutlich Loss-Dict). Erwartet: list[dict] mit 'boxes'. Es werden keine Detections erzeugt.")
+            elif torch.is_tensor(outputs):
+                logger.warning("Model eval returned Tensor. Erwartet: list[dict] pro Bild. Es werden keine Detections erzeugt.")
+            else:
+                logger.warning(f"Unerwarteter eval-Output: {type(outputs)}")
+
+        # Wenn Output nicht der erwartete Typ ist, nächste Batch
+        if not isinstance(outputs, (list, tuple)) or (len(outputs) != len(images)):
+            logger.warning(f"Outputs nicht mit Batch kompatibel (len(outputs)={len(outputs) if hasattr(outputs,'__len__') else 'n/a'} vs len(images)={len(images)}). Batch wird übersprungen.")
+            continue
 
         for i, (target, output) in enumerate(zip(targets, outputs)):
             # Bild-Metadaten
@@ -1095,14 +1122,16 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox"):
                 categories.add(int(lbl))
 
             for box, label, area, crowd in zip(gt_xywh, gt_labels, gt_area, gt_iscrowd):
-                coco_annotations.append({
-                    "id": ann_id,
-                    "image_id": image_id,
-                    "category_id": int(label),
-                    "bbox": [float(x) for x in box],      # XYWH
-                    "area": float(area),
-                    "iscrowd": int(crowd),
-                })
+                coco_annotations.append(
+                    {
+                        "id": ann_id,
+                        "image_id": image_id,
+                        "category_id": int(label),
+                        "bbox": [float(x) for x in box],  # XYWH
+                        "area": float(area),
+                        "iscrowd": int(crowd),
+                    }
+                )
                 ann_id += 1
 
             # ---------- Predictions (typisch XYXY -> XYWH) ----------
@@ -1125,22 +1154,18 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox"):
                 categories.add(int(lbl))
 
             for box, score, label in zip(pred_xywh, pred_scores, pred_labels):
-                results.append({
-                    "image_id": image_id,
-                    "category_id": int(label),
-                    "bbox": [float(x) for x in box],   # XYWH
-                    "score": float(score),
-                })
+                results.append(
+                    {
+                        "image_id": image_id,
+                        "category_id": int(label),
+                        "bbox": [float(x) for x in box],  # XYWH
+                        "score": float(score),
+                    }
+                )
 
     # ---------- COCO GT-Objekt ----------
     coco_gt_dict = {
-        "info": {
-            "description": "Autogenerated GT",
-            "version": "1.0",
-            "year": 2025,
-            "contributor": "Wes",
-            "date_created": "2025-08-19"
-        },
+        "info": {"description": "Autogenerated GT", "version": "1.0", "year": 2025, "contributor": "Wes", "date_created": "2025-08-19"},
         "images": coco_images,
         "annotations": coco_annotations,
         "categories": [{"id": cid, "name": str(cid)} for cid in sorted(categories)] or [{"id": 1, "name": "1"}],
@@ -1150,7 +1175,23 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox"):
     coco_gt.createIndex()
 
     # ---------- COCOeval ----------
-    coco_dt = coco_gt.loadRes(results) if len(results) > 0 else []
+    if len(results) == 0:
+        logger.warning("COCO eval: Keine Detections erzeugt – gebe Null-Metriken zurück und überspringe COCOeval.")
+        return {
+            "AP": 0.0,
+            "AP50": 0.0,
+            "AP75": 0.0,
+            "AP_small": 0.0,
+            "AP_medium": 0.0,
+            "AP_large": 0.0,
+            "AR_1": 0.0,
+            "AR_10": 0.0,
+            "AR_100": 0.0,
+            "AR_small": 0.0,
+            "AR_medium": 0.0,
+            "AR_large": 0.0,
+        }
+    coco_dt = coco_gt.loadRes(results)
     coco_eval = COCOeval(coco_gt, coco_dt, iouType=iou_type)
     coco_eval.evaluate()
     coco_eval.accumulate()
@@ -1186,20 +1227,15 @@ def model_input_format(images, targets, model_need, device):
             if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
                 boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
                 labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
-
-                # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes)
-
                 processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
 
             elif isinstance(tgt, list) and len(tgt) > 0:
                 boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
                 labels = torch.tensor([ann["category_id"] for ann in tgt], dtype=torch.long)
-
-                # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes_xywh)
-
                 processed_targets.append({"boxes": boxes.to(device), "labels": labels.to(device)})
+
             else:
                 processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
@@ -1211,20 +1247,15 @@ def model_input_format(images, targets, model_need, device):
             if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
                 boxes = tgt["boxes"] if isinstance(tgt["boxes"], torch.Tensor) else torch.as_tensor(tgt["boxes"], dtype=torch.float32)
                 labels = tgt["labels"] if isinstance(tgt["labels"], torch.Tensor) else torch.as_tensor(tgt["labels"], dtype=torch.long)
-
-                # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes)
-
                 processed_targets.append({"boxes": boxes.to(device).float(), "labels": labels.to(device).long()})
 
             elif isinstance(tgt, list) and len(tgt) > 0:
                 boxes_xywh = torch.tensor([ann["bbox"] for ann in tgt], dtype=torch.float32)
                 labels = torch.tensor([ann["category_id"] for ann in tgt], dtype=torch.long)
-
-                # FIX: xywh -> xyxy
                 boxes = to_xyxy(boxes_xywh)
-
                 processed_targets.append({"boxes": boxes.to(device), "labels": labels.to(device)})
+
             else:
                 processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
@@ -1236,7 +1267,7 @@ class CocoDetWrapped(Dataset):
         self.ds = CocoDetection(root=root, annFile=annFile)
         self.transforms = transforms
         self.img_id_start = img_id_start
-        
+
     def __len__(self):
         return len(self.ds)
 
