@@ -120,7 +120,10 @@ def main(cfg: AIPipelineConfig):
     # 4. AUGMENTATION
     # =============================================================================
 
-    inputsize_x, inputsize_y = model_architecture.get_input_size()
+    if cfg.model.transfer_learning.enabled:
+        inputsize_x, inputsize_y = model_architecture.get_input_size(cfg = cfg)
+    else:
+        inputsize_x, inputsize_y = model_architecture.get_input_size()
     logger.info(f"📐 Model input size: {inputsize_x}x{inputsize_y}")
 
     augmentation = importlib.import_module(f"augmentations.{cfg.augmentation.file}")
@@ -531,7 +534,7 @@ def main(cfg: AIPipelineConfig):
     model.train()
     test_loss = 0.0
     with torch.no_grad():
-        for images, targets in test_dataloader:
+        for images, targets in val_dataloader:
             if images is None or targets is None:
                 continue
             images, processed_targets = model_input_format(images, targets, model_need, device)
@@ -539,7 +542,7 @@ def main(cfg: AIPipelineConfig):
             loss_dict = model(images, processed_targets)
             losses = sum(loss for loss in loss_dict.values())
             test_loss += losses.item()
-    avg_test_loss = test_loss / len(test_dataloader)
+    avg_test_loss = test_loss / len(val_dataloader)
     logger.info(f"🧪 Test Loss: {avg_test_loss:.4f}")
     writer.add_scalar("Test/Loss", avg_test_loss, cfg.training.epochs)
 
@@ -553,7 +556,7 @@ def main(cfg: AIPipelineConfig):
     all_gts = []
 
     with torch.no_grad():
-        for images, targets in test_dataloader:
+        for images, targets in val_dataloader:
             if images is None or targets is None:
                 continue
             images, processed_targets = model_input_format(images, targets, model_need, device)

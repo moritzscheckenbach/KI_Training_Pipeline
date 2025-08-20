@@ -1,6 +1,6 @@
 
 training:
-  epochs: 10
+  epochs: 5
   batch_size: 6
   learning_rate: 0.001
   early_stopping_patience: 10
@@ -24,11 +24,11 @@ model:
   type: "object_detection"
   file: "fasterRCNN_001Resnet"
   transfer_learning:
-    enabled: false
-    path: ''
+    enabled: true
+    path: "trained_models/object_detection/20250819_171732_fasterRCNN_001Resnet/models/best_model_weights.pth"
     trans_file: "transferlearning"
     freezing:
-      enabled: false
+      enabled: true
       strategy: "freeze_all_except_head"
       freeze_early_layers:
         freeze_until_layer: 6

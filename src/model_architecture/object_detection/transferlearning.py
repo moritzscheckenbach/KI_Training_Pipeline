@@ -121,10 +121,6 @@ class TransferLearningModel(nn.Module):
         """Forward pass durch das Base Model"""
         return self.base_model(x, targets)
 
-    def get_input_size(self):
-        """Return expected input size"""
-        return self.base_model.get_input_size()
-
     def get_trainable_parameters(self):
         """Zeigt trainierbare Parameter"""
         trainable = sum(p.numel() for p in self.parameters() if p.requires_grad)
@@ -149,3 +145,20 @@ def build_model_tr(cfg=None):
     model = TransferLearningModel(cfg=cfg, model_config=model_config)
     model.get_trainable_parameters()
     return model
+
+def get_input_size(cfg):
+
+    model_config_path = Path(cfg.model.transfer_learning.path)
+    model_config_folder = model_config_path.parent.parent
+    config_file = model_config_folder / "configs/config.yaml"
+
+    # Lade die YAML-Datei direkt
+    model_config = OmegaConf.load(config_file)
+ 
+    model_type = model_config.model.type
+    model_name = model_config.model.file
+    """Return expected input size"""
+    model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
+    inputsize_x, inputsize_y = model_architecture.get_input_size()
+
+    return inputsize_x, inputsize_y
