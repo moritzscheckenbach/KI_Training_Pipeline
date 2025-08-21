@@ -47,9 +47,8 @@ def main(cfg: AIPipelineConfig):
     """
 
     # =============================================================================
-    # 1. EXPERIMENT SETUP
+    # EXPERIMENT SETUP
     # =============================================================================
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     dataset_root = cfg.dataset.root
@@ -72,9 +71,8 @@ def main(cfg: AIPipelineConfig):
     os.makedirs(f"{experiment_dir}/configs", exist_ok=True)
 
     # =============================================================================
-    # 2. LOGGER SETUP
+    # LOGGER SETUP
     # =============================================================================
-
     logger.remove()
     logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="DEBUG", colorize=True)
 
@@ -93,9 +91,8 @@ def main(cfg: AIPipelineConfig):
     logger.info(f"📝 Log file: {log_file_path}")
 
     # =============================================================================
-    # 3. MODEL LOADING
+    # MODEL LOADING
     # =============================================================================
-
     try:
         if cfg.model.transfer_learning.enabled:
             model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
@@ -128,7 +125,7 @@ def main(cfg: AIPipelineConfig):
     # return
 
     # =============================================================================
-    # 4. AUGMENTATION
+    # AUGMENTATION
     # =============================================================================
     if cfg.model.transfer_learning.enabled:
         inputsize_x, inputsize_y = model_architecture.get_input_size(cfg=cfg)
@@ -153,9 +150,8 @@ def main(cfg: AIPipelineConfig):
     v2_eval_tf = COCOWrapper(val_base_transform, inputsize_x, inputsize_y)
 
     # =============================================================================
-    # 5. DATASET LOADING
+    # DATASET LOADING
     # =============================================================================
-
     logger.info(f"📊 Loading {dataset_type} dataset from: {dataset_root}")
 
     # TYPE COCO Dataset
@@ -229,9 +225,8 @@ def main(cfg: AIPipelineConfig):
     # return
 
     # =============================================================================
-    # 6. MODEL TO DEVICE
+    # MODEL TO DEVICE
     # =============================================================================
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     logger.info(f"🖥️ Using device: {device}")
@@ -241,9 +236,8 @@ def main(cfg: AIPipelineConfig):
         logger.info(f"💾 GPU Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
 
     # =============================================================================
-    # 7. OPTIMIZER SETUP
+    # OPTIMIZER SETUP
     # =============================================================================
-
     if cfg.model.transfer_learning.enabled and "backbone_lr_multiplier" in cfg.model.transfer_learning.lr:
         backbone_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.backbone_lr_multiplier
         head_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.head_lr_multiplier
@@ -274,9 +268,8 @@ def main(cfg: AIPipelineConfig):
         logger.info(f"🔧 Using optimizer: {cfg.optimizer.type}")
 
     # =============================================================================
-    # 8. SCHEDULER SETUP
+    # SCHEDULER SETUP
     # =============================================================================
-
     scheduler_module = cfg.scheduler.file
     if scheduler_module:
         scheduler_lib = importlib.import_module(f"utils.{scheduler_module}")
@@ -289,14 +282,13 @@ def main(cfg: AIPipelineConfig):
         logger.info("📅 No scheduler configured")
 
     # =============================================================================
-    # 9. TENSORBOARD SETUP
+    # TENSORBOARD SETUP
     # =============================================================================
-
     writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
     logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
 
     # =============================================================================
-    # 10. TRAINING LOOP (mit erweitertem Logging)
+    # TRAINING LOOP (mit erweitertem Logging)
     # =============================================================================
     best_val_loss = float("inf")
     patience_counter = 0
@@ -398,7 +390,7 @@ def main(cfg: AIPipelineConfig):
             writer.add_histogram(f"Params/{name}", p.detach().cpu().numpy(), epoch)
 
         # =============================================================================
-        # 11. VAL EVALUATION (Loss)
+        # VAL EVALUATION (Loss)
         # =============================================================================
         logger.info("🧪 Starting val evaluation (loss)")
         model.train()  # (bewusst: Loss-Forward in train(), aber mit no_grad)
@@ -419,7 +411,7 @@ def main(cfg: AIPipelineConfig):
         writer.add_scalar("Val/Loss", avg_val_loss, epoch)
 
         # =============================================================================
-        # 12. COCO EVALUATION (Metrics)
+        # COCO EVALUATION (Metrics)
         # =============================================================================
         def _get(m: dict, key: str, default=None):
             return m[key] if (m is not None and key in m) else default
@@ -529,9 +521,8 @@ def main(cfg: AIPipelineConfig):
                 break
 
     # =============================================================================
-    # 11. TEST EVALUATION (Loss)
+    # TEST EVALUATION (Loss)
     # =============================================================================
-
     logger.info("🧪 Starting test evaluation (loss)")
     model.load_state_dict(torch.load(f"{experiment_dir}/models/best_model_weights.pth", weights_only=True))
     model.train()
@@ -550,9 +541,8 @@ def main(cfg: AIPipelineConfig):
     writer.add_scalar("Test/Loss", avg_test_loss, cfg.training.epochs)
 
     # =============================================================================
-    # 12. CONFUSION MATRIX AUF TESTDATEN (Detections + CM in TensorBoard)
+    # CONFUSION MATRIX AUF TESTDATEN (Detections + CM in TensorBoard)
     # =============================================================================
-
     logger.info("🧪 Building confusion matrix on test set")
     model.eval()
     all_preds = []
@@ -597,9 +587,8 @@ def main(cfg: AIPipelineConfig):
     plt.close(fig)
 
     # =============================================================================
-    # 13. EXPERIMENT SUMMARY
+    # EXPERIMENT SUMMARY
     # =============================================================================
-
     clean_config = OmegaConf.to_container(cfg, resolve=True)
     summary = {
         "experiment_name": experiment_name,
@@ -616,9 +605,8 @@ def main(cfg: AIPipelineConfig):
     writer.close()
 
     # =============================================================================
-    # 14. FINAL LOGGING
+    # FINAL LOGGING
     # =============================================================================
-
     logger.success(f"✅ Training completed!")
     logger.info(f"📁 Results saved in: {experiment_dir}")
     logger.info(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
