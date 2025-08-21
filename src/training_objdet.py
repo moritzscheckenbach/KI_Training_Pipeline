@@ -113,10 +113,23 @@ def main(cfg: AIPipelineConfig):
         logger.error(f"❌ Error building model: {e}")
         raise
 
+    # # ---- TESTING MODEL INFERENCE MODE ----
+    # logger.info("Testing model inference mode...")
+    # model.eval()
+    # dummy_input = torch.randn(2, 3, 416, 416).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    # with torch.no_grad():
+    #     test_output = model(dummy_input)
+    # logger.info(f"Test output type: {type(test_output)}")
+    # if isinstance(test_output, list):
+    #     logger.info(f"Test output length: {len(test_output)}")
+    #     if len(test_output) > 0:
+    #         logger.info(f"First element keys: {list(test_output[0].keys()) if isinstance(test_output[0], dict) else 'not a dict'}")
+    # model.train()
+    # return
+
     # =============================================================================
     # 4. AUGMENTATION
     # =============================================================================
-
     if cfg.model.transfer_learning.enabled:
         inputsize_x, inputsize_y = model_architecture.get_input_size(cfg=cfg)
     else:
@@ -285,7 +298,6 @@ def main(cfg: AIPipelineConfig):
     # =============================================================================
     # 10. TRAINING LOOP (mit erweitertem Logging)
     # =============================================================================
-
     best_val_loss = float("inf")
     patience_counter = 0
 
@@ -318,10 +330,10 @@ def main(cfg: AIPipelineConfig):
             model_need = "Tensor"
 
             images, processed_targets = model_input_format(images, targets, model_need, device)
-            # logger.debug(f"Type Images: {type(images)}")
-            # logger.debug(f"Images: {images}")
-            # logger.debug(f"Type Processed Targets: {type(processed_targets)}")
-            # logger.debug(f"Processed Targets: {processed_targets}")
+            logger.debug(f"Type Images: {type(images)}")
+            logger.debug(f"Images: {images}")
+            logger.debug(f"Type Processed Targets: {type(processed_targets)}")
+            logger.debug(f"Processed Targets: {processed_targets}")
 
             ########    WIE ARCHITEKTUR??????
             optimizer.zero_grad()
@@ -925,7 +937,7 @@ class COCOWrapper:
         return img, target
 
 
-def _get_img_wh_from_target(tgt: Dict[str, Any], img_tensor: Optional[torch.Tensor]) -> (int, int):
+def _get_img_wh_from_target(tgt: Dict[str, Any], img_tensor: Optional[torch.Tensor]) -> Tuple[int, int]:
     """
     Versucht width/height robust aus dem Target zu lesen.
     Fallback: Tensorgröße (C,H,W) falls verfügbar.
@@ -1059,13 +1071,13 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             images_device = torch.stack([img.to(device) for img in images])
             logger.debug(f"Input format is Tensor")
             logger.debug(f"Type images_device: {type(images_device)}")
-            # logger.debug(f"images_device: {images_device}")
+            logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
         else:
             images_device = [img.to(device) for img in images]
             logger.debug(f"Input format is List")
             logger.debug(f"Type images_device: {type(images_device)}")
-            # logger.debug(f"images_device: {images_device}")
+            logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
 
         # Debug-Ausgaben zum Output-Typ
@@ -1261,17 +1273,38 @@ def model_input_format(images, targets, model_need, device):
     return images, processed_targets
 
 
+def debug_show(img, title="Debug Image", enable=False):
+    if not enable:
+        return
+    plt.figure()
+    if isinstance(img, torch.Tensor):
+        if img.dim() == 3 and img.shape[0] in [1, 3]:
+            plt.imshow(img.permute(1, 2, 0).cpu().numpy())
+        else:
+            plt.imshow(img)
+    else:
+        plt.imshow(np.array(img))
+    plt.title(title)
+    plt.axis("off")
+    plt.show()
+
+
 class CocoDetWrapped(Dataset):
     def __init__(self, root, annFile, transforms=None, img_id_start=0):
         self.ds = CocoDetection(root=root, annFile=annFile)
         self.transforms = transforms
         self.img_id_start = img_id_start
+        self.debug_mode = False
+        self.debug_samples = set(range(min(5, len(self.ds)))) if self.debug_mode else set()
 
     def __len__(self):
         return len(self.ds)
 
     def __getitem__(self, idx):
         img, anns = self.ds[idx]  # anns: List[dict]
+        # Debug: Originalbild anzeigen
+        should_debug = self.debug_mode and idx in self.debug_samples
+        debug_show(img, f"Originalbild idx={idx}", enable=should_debug)
 
         boxes, labels, areas, iscrowd = [], [], [], []
         for a in anns:
@@ -1304,7 +1337,8 @@ class CocoDetWrapped(Dataset):
 
         if self.transforms is not None:
             img, target = self.transforms(img, target)
-
+            # Debug: Bild nach Transforms anzeigen
+            debug_show(img, f"Nach Transforms idx={idx}", enable=should_debug)
         return img, target
 
 
