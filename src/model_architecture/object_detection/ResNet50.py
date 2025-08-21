@@ -159,7 +159,7 @@ class ResNet50ObjectDetection(nn.Module):
 
         return {"classification_loss": total_class_loss / batch_size, "bbox_regression_loss": total_bbox_loss / batch_size, "confidence_loss": total_conf_loss / batch_size}
 
-    def _parse_detections(self, detection_output):
+    def _parse_detections_old(self, detection_output):
         """Parse grid output to detections"""
         batch_size = detection_output.size(0)
         detections = []
@@ -170,7 +170,7 @@ class ResNet50ObjectDetection(nn.Module):
             # Extract predictions
             class_pred = torch.softmax(pred[: self.num_classes], dim=0)
             bbox_pred = pred[self.num_classes : self.num_classes + 4]
-            conf_pred = torch.sigmoid(pred[4])
+            conf_pred = torch.sigmoid(pred[-1])
 
             # Find detections above threshold
             conf_mask = conf_pred > 0.5
@@ -187,6 +187,77 @@ class ResNet50ObjectDetection(nn.Module):
             detected_conf = conf_pred[y_coords, x_coords]  # [num_detections]
 
             detections.append({"class_scores": detected_classes, "bbox_coords": detected_boxes, "confidence": detected_conf})
+
+        return detections
+
+    def _parse_detections(self, detection_output):
+        """Parse grid output to COCO-format detections"""
+        batch_size = detection_output.size(0)
+        device = detection_output.device
+        detections = []
+
+        for i in range(batch_size):
+            pred = detection_output[i]  # [output_channels, grid_size, grid_size]
+
+            # Extract predictions
+            class_pred = pred[: self.num_classes]  # [num_classes, grid, grid]
+            bbox_pred = pred[self.num_classes : self.num_classes + 4]  # [4, grid, grid]
+            conf_pred = torch.sigmoid(pred[-1])  # [grid, grid] - FIXED: using last channel
+
+            # Find detections above threshold
+            conf_mask = conf_pred > 0.1  # Lower threshold during early training
+
+            if not conf_mask.any():
+                # No detections found, return empty detection
+                empty = {
+                    "boxes": torch.empty((0, 4), device=device),
+                    "scores": torch.empty((0,), device=device),
+                    "labels": torch.empty((0,), dtype=torch.long, device=device),
+                }
+                detections.append(empty)
+                continue
+
+            # Get detection coordinates
+            y_coords, x_coords = torch.where(conf_mask)
+
+            # Get class predictions at these coordinates
+            class_scores = class_pred[:, y_coords, x_coords]  # [num_classes, num_detections]
+            pred_classes = torch.argmax(class_scores, dim=0)  # [num_detections]
+            max_scores = torch.max(class_scores, dim=0)[0]  # [num_detections]
+
+            # Get confidence scores
+            confidence = conf_pred[y_coords, x_coords]  # [num_detections]
+
+            # Combine confidence and class score for final score
+            scores = confidence * max_scores
+
+            # Get bounding box coordinates
+            boxes = bbox_pred[:, y_coords, x_coords].t()  # [num_detections, 4]
+
+            # Convert grid-relative coordinates to image space
+            # Add grid offset and scale to image size
+            grid_size = self.grid_size
+            cell_size = 1.0 / grid_size
+
+            # Convert [x, y, w, h] relative format to [x1, y1, x2, y2] absolute format
+            x_offset = x_coords.float() * cell_size
+            y_offset = y_coords.float() * cell_size
+
+            # Add grid cell offset to x,y and scale to input size
+            boxes_xyxy = torch.zeros_like(boxes)
+            boxes_xyxy[:, 0] = (x_offset + boxes[:, 0] * cell_size) * self.input_size  # x1
+            boxes_xyxy[:, 1] = (y_offset + boxes[:, 1] * cell_size) * self.input_size  # y1
+            boxes_xyxy[:, 2] = boxes_xyxy[:, 0] + boxes[:, 2] * self.input_size  # x2 = x1 + w
+            boxes_xyxy[:, 3] = boxes_xyxy[:, 1] + boxes[:, 3] * self.input_size  # y2 = y1 + h
+
+            # Return in COCO format
+            detections.append(
+                {
+                    "boxes": boxes_xyxy,
+                    "scores": scores,
+                    "labels": pred_classes,
+                }
+            )
 
         return detections
 
@@ -224,3 +295,4 @@ if __name__ == "__main__":
     output = model(dummy_input)
     print("ResNet50 Model loaded successfully!")
     print(f"Input size: {get_input_size()}")
+    print(f"Dummy output: {output}")

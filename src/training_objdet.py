@@ -41,9 +41,6 @@ from utils.YOLO_Dataset_Loader import YoloDataset
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def main(cfg: AIPipelineConfig):
-    print(f"Config:\n{cfg}")
-    print(f"Datentyp der Config: {type(cfg)}")
-
     """
     Main function for training the model.
     This function sets up the training environment, loads the model, datasets, and starts the training loop.
@@ -388,18 +385,6 @@ def main(cfg: AIPipelineConfig):
         for name, p in model.named_parameters():
             writer.add_histogram(f"Params/{name}", p.detach().cpu().numpy(), epoch)
 
-        # # -----------------------------
-        # # Evaluation (COCO mAP)
-        # # -----------------------------
-        # # coco_val = COCO(str(annFile))
-        # evaluate_coco_from_loader(
-        #     model=model,
-        #     data_loader=val_dataloader,
-        #     device=device,
-        #     iou_type="bbox",
-        #     input_format=model_need,
-        # )
-
         # =============================================================================
         # 11. VAL EVALUATION (Loss)
         # =============================================================================
@@ -417,7 +402,7 @@ def main(cfg: AIPipelineConfig):
 
         avg_val_loss = val_loss / max(1, len(val_dataloader))
         logger.info(f"🧪 Val Loss: {avg_val_loss:.4f}")
-        # Hinweis: Epochen-Index für TB – hier 'epoch' statt 'cfg.training.epochs' sinnvoller,
+        # Hinweis: Epochen-Index für TB - hier 'epoch' statt 'cfg.training.epochs' sinnvoller,
         # sonst wird immer in dieselbe Step-Nummer geschrieben.
         writer.add_scalar("Val/Loss", avg_val_loss, epoch)
 
@@ -473,7 +458,7 @@ def main(cfg: AIPipelineConfig):
 
             writer.flush()
         else:
-            logger.warning("COCO-Evaluation lieferte kein Ergebnis (m is None) – überspringe TB-Logging.")
+            logger.warning("COCO-Evaluation lieferte kein Ergebnis (m is None) - überspringe TB-Logging.")
 
         # --- Scheduler Step ---
         if use_scheduler:
@@ -483,7 +468,7 @@ def main(cfg: AIPipelineConfig):
                 scheduler.step()
             current_lr = optimizer.param_groups[0]["lr"]
             writer.add_scalar("Learning_Rate", current_lr, epoch)
-            logger.debug(f"   Current Learning Rate: {current_lr:.6f}")
+            logger.info(f"📈 Current Learning Rate: {current_lr:.6f}")
 
         # # --- Epoch-Level Scalars ---
         writer.add_scalar("Loss/Train", avg_train_loss, epoch)
@@ -526,9 +511,9 @@ def main(cfg: AIPipelineConfig):
             logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
         else:
             patience_counter += 1
-            logger.debug(f"   Patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
+            logger.debug(f"⏰Early stopping patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
             if patience_counter >= cfg.training.early_stopping_patience:
-                logger.warning("⏹️ Early stopping triggered.")
+                logger.info("⏹️ Early stopping triggered.")
                 break
 
     # =============================================================================
@@ -1072,15 +1057,22 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     for images, targets in tqdm(data_loader, desc="Evaluating"):
         if input_format == "Tensor":
             images_device = torch.stack([img.to(device) for img in images])
+            # logger.debug(f"Input format is Tensor")
+            # logger.debug(f"Type images_device: {type(images_device)}")
+            # logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
         else:
             images_device = [img.to(device) for img in images]
+            # logger.debug(f"Input format is List")
+            # logger.debug(f"Type images_device: {type(images_device)}")
+            # logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
 
         # Debug-Ausgaben zum Output-Typ
         logger.debug(f"eval outputs type={type(outputs)}; len={len(outputs) if hasattr(outputs,'__len__') else 'n/a'}")
         if isinstance(outputs, (list, tuple)) and len(outputs) > 0 and isinstance(outputs[0], dict):
             logger.debug(f"eval outputs[0] keys={list(outputs[0].keys())}")
+            # logger.debug(f"outputs[0]: {outputs[0]}")
         else:
             if isinstance(outputs, dict):
                 logger.warning("Model eval returned dict (vermutlich Loss-Dict). Erwartet: list[dict] mit 'boxes'. Es werden keine Detections erzeugt.")
@@ -1175,8 +1167,15 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     coco_gt.createIndex()
 
     # ---------- COCOeval ----------
+    logger.warning(f"Type Model output: {type(output)}")
+    logger.warning(f"Model output: {output}\n\n")
+    logger.warning(f"Type Results: {type(results)}")
+    logger.warning(f"Results: {results}\n\n")
+    logger.warning(f"Type COCO GT: {type(coco_gt)}")
+    logger.warning(f"COCO GT: {coco_gt}\n\n")
+
     if len(results) == 0:
-        logger.warning("COCO eval: Keine Detections erzeugt – gebe Null-Metriken zurück und überspringe COCOeval.")
+        logger.warning("COCO eval: Keine Detections erzeugt - gebe Null-Metriken zurück und überspringe COCOeval.")
         return {
             "AP": 0.0,
             "AP50": 0.0,

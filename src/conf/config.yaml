@@ -1,6 +1,6 @@
 
 training:
-  epochs: 5
+  epochs: 12
   batch_size: 6
   learning_rate: 0.001
   early_stopping_patience: 10
@@ -19,10 +19,10 @@ optimizer:
   sgd:
     momentum: 0.9
 augmentation:
-  file: "augmentation_1"
+  file: "no_augmentation"
 model:
   type: "object_detection"
-  file: "ResNet50"
+  file: "fasterRCNN_001Resnet"
   transfer_learning:
     enabled: false
     path: "trained_models/object_detection/20250819_171732_fasterRCNN_001Resnet/models/best_model_weights.pth"
@@ -39,6 +39,6 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/object_detection/Type_COCO/Test_Duckiebots/"
+  root: "datasets/object_detection/Type_COCO/Duckiebots_preprocessed/" # Slash on the end!
   type: "Type_COCO"
   num_classes: 4
