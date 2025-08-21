@@ -363,8 +363,8 @@ def main(cfg: AIPipelineConfig):
                 writer.add_scalar("GPU/mem_reserved_MB", mem_reserved, global_step)
 
             if (i + 1) % batch_log_interval == 0:
-                logger.debug(f"   Batch {i+1}/{len(train_dataloader)}, Loss: {losses.item():.4f}, GradNorm: {gnorm if 'gnorm' in locals() else 'n/a'}")
-
+                # logger.info(f"   Batch {i+1}/{len(train_dataloader)}, Loss: {losses.item():.4f}, GradNorm: {gnorm if 'gnorm' in locals() else 'n/a'}")
+                pass
             # --- Train Image-Logging (erste Batch, alle n Epochen) ---
             if i == 0 and (epoch % log_images_every_n_epochs == 0):
                 with torch.no_grad():
@@ -511,7 +511,7 @@ def main(cfg: AIPipelineConfig):
             logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
         else:
             patience_counter += 1
-            logger.debug(f"⏰Early stopping patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
+            logger.info(f"⏰ Early stopping patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
             if patience_counter >= cfg.training.early_stopping_patience:
                 logger.info("⏹️ Early stopping triggered.")
                 break
@@ -1057,14 +1057,14 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     for images, targets in tqdm(data_loader, desc="Evaluating"):
         if input_format == "Tensor":
             images_device = torch.stack([img.to(device) for img in images])
-            # logger.debug(f"Input format is Tensor")
-            # logger.debug(f"Type images_device: {type(images_device)}")
+            logger.debug(f"Input format is Tensor")
+            logger.debug(f"Type images_device: {type(images_device)}")
             # logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
         else:
             images_device = [img.to(device) for img in images]
-            # logger.debug(f"Input format is List")
-            # logger.debug(f"Type images_device: {type(images_device)}")
+            logger.debug(f"Input format is List")
+            logger.debug(f"Type images_device: {type(images_device)}")
             # logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
 
@@ -1072,7 +1072,8 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
         logger.debug(f"eval outputs type={type(outputs)}; len={len(outputs) if hasattr(outputs,'__len__') else 'n/a'}")
         if isinstance(outputs, (list, tuple)) and len(outputs) > 0 and isinstance(outputs[0], dict):
             logger.debug(f"eval outputs[0] keys={list(outputs[0].keys())}")
-            # logger.debug(f"outputs[0]: {outputs[0]}")
+            logger.debug(f"outputs[0]: {outputs[0]}")
+            pass
         else:
             if isinstance(outputs, dict):
                 logger.warning("Model eval returned dict (vermutlich Loss-Dict). Erwartet: list[dict] mit 'boxes'. Es werden keine Detections erzeugt.")
@@ -1085,7 +1086,6 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
         if not isinstance(outputs, (list, tuple)) or (len(outputs) != len(images)):
             logger.warning(f"Outputs nicht mit Batch kompatibel (len(outputs)={len(outputs) if hasattr(outputs,'__len__') else 'n/a'} vs len(images)={len(images)}). Batch wird übersprungen.")
             continue
-
         for i, (target, output) in enumerate(zip(targets, outputs)):
             # Bild-Metadaten
             _, H, W = images[i].shape
@@ -1128,8 +1128,8 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
 
             # ---------- Predictions (typisch XYXY -> XYWH) ----------
             if output is None or ("boxes" not in output):
+                logger.warning(f"Model output for image {image_id} is None or missing 'boxes'. Skipping this image.")
                 continue
-
             pred_xyxy = output["boxes"].detach().cpu()
             pred_scores = output.get("scores", torch.ones(len(pred_xyxy))).detach().cpu().numpy().astype(float)
             pred_labels = output.get("labels", torch.zeros(len(pred_xyxy), dtype=torch.long)).detach().cpu().numpy().astype(int)
@@ -1167,12 +1167,12 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     coco_gt.createIndex()
 
     # ---------- COCOeval ----------
-    logger.warning(f"Type Model output: {type(output)}")
-    logger.warning(f"Model output: {output}\n\n")
-    logger.warning(f"Type Results: {type(results)}")
-    logger.warning(f"Results: {results}\n\n")
-    logger.warning(f"Type COCO GT: {type(coco_gt)}")
-    logger.warning(f"COCO GT: {coco_gt}\n\n")
+    logger.debug(f"Type Model output: {type(outputs)}")
+    logger.debug(f"Model output: {outputs}\n\n")
+    logger.debug(f"Type Results: {type(results)}")
+    logger.debug(f"Results: {results}\n\n")
+    logger.debug(f"Type COCO GT: {type(coco_gt)}")
+    logger.debug(f"COCO GT: {coco_gt}\n\n")
 
     if len(results) == 0:
         logger.warning("COCO eval: Keine Detections erzeugt - gebe Null-Metriken zurück und überspringe COCOeval.")

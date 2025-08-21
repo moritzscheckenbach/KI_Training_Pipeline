@@ -30,3 +30,14 @@ def build_model(num_classes: int):
 def get_input_size():
     # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
     return 224, 224
+
+
+# Test function
+if __name__ == "__main__":
+    model = build_model(num_classes=20)
+    model.eval()
+    dummy_input = torch.randn(1, 3, 416, 416)
+    output = model(dummy_input)
+    print("fasterRCNN_001Resnet Model loaded successfully!")
+    print(f"Input size: {get_input_size()}")
+    print(f"Dummy output: {output}")
