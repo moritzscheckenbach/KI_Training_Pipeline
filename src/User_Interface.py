@@ -24,7 +24,7 @@ def quote_specific_strings(data):
         result = {}
         for k, v in data.items():
             # Bestimmte Keys, deren Werte in Anführungszeichen sollen
-            if k in ["file", "type", "path", "trans_file", "strategy", "root"]:
+            if k in ["file", "type", "path", "trans_file", "strategy", "root", "head_name", "backbone_name"]:
                 if isinstance(v, str) and v:
                     result[k] = DoubleQuotedScalarString(v)
                 else:
@@ -238,7 +238,19 @@ if mode == "Transferlearning: selbstrainiertes Modell":
         freezing_enabled = st.selectbox("Freezing Enabled", [True, False])
 
         if freezing_enabled:
-            freezing_strategy = st.selectbox("Freezing Strategy", ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"])
+            freezing_strategy = st.selectbox(
+                "Freezing Strategy",
+                ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"]
+            )
+
+            # Default values
+            head_name = "detection_head"
+            backbone_name = "backbone"
+
+            if freezing_strategy == "freeze_all_except_head":
+                head_name = st.text_input("Name des Heads (wird nicht eingefroren)", value="detection_head")
+            if freezing_strategy == "freeze_backbone":
+                backbone_name = st.text_input("Name des Backbones (wird eingefroren)", value="backbone")
 
             if freezing_strategy == "freeze_early_layers":
                 freeze_until_layer = st.number_input("Freeze Until Layer", min_value=1, max_value=50, value=6)
@@ -247,10 +259,11 @@ if mode == "Transferlearning: selbstrainiertes Modell":
                 st.markdown("**Custom Freeze Settings**")
                 freeze_layers_input = st.text_input("Freeze Layers (comma separated)", value="backbone.layer1, backbone.layer2")
                 unfreeze_layers_input = st.text_input("Unfreeze Layers (comma separated)", value="detection_head, backbone.layer4")
-
-                # Parse comma-separated input
                 freeze_layers = [layer.strip() for layer in freeze_layers_input.split(",") if layer.strip()]
                 unfreeze_layers = [layer.strip() for layer in unfreeze_layers_input.split(",") if layer.strip()]
+            else:
+                freeze_layers = []
+                unfreeze_layers = []
 
     with col2:
         st.markdown("**Learning Rate Multipliers**")
@@ -289,6 +302,12 @@ config = {
             "freezing": {
                 "enabled": bool(freezing_enabled) if mode == "Transferlearning: selbstrainiertes Modell" else False,
                 "strategy": freezing_strategy if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled else "freeze_all_except_head",
+                "freeze_all_except_head": {
+                    "head_name": head_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_all_except_head" else "detection_head"
+                },
+                "freeze_backbone": {
+                    "backbone_name": backbone_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_backbone" else "backbone"
+                },
                 "freeze_early_layers": {
                     "freeze_until_layer": int(freeze_until_layer) if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_early_layers" else 6
                 },

@@ -62,17 +62,17 @@ class TransferLearningModel(nn.Module):
             raise ValueError(f"Unknown transfer learning strategy: {strategy}")
 
     def _freeze_all_except_head(self):
+        detection_head = self.cfg.model.transfer_learning.freezing.freeze_all_except_head.head_name
         """Friert alles außer dem Detection Head ein"""
         # Alle Parameter einfrieren
         for param in self.base_model.parameters():
             param.requires_grad = False
 
-        # Nur Detection Head unfreezen
-        if hasattr(self.base_model, "detection_head"):
-            for param in self.base_model.roi_head.parameters():
+        # Prüfen, ob das Attribut existiert
+        if hasattr(self.base_model, detection_head):
+            head = getattr(self.base_model, detection_head)  # entspricht self.base_model.roi_head
+            for param in head.parameters():
                 param.requires_grad = True
-
-        print("🧊 Froze all layers except detection head")
 
     def _freeze_early_layers(self):
         """Friert die ersten N Layer ein"""
@@ -89,11 +89,13 @@ class TransferLearningModel(nn.Module):
 
     def _freeze_backbone(self):
         """Friert das gesamte Backbone ein"""
-        if hasattr(self.base_model, "backbone"):
-            for param in self.base_model.backbone.parameters():
+        backbone_name = self.cfg.model.transfer_learning.freezing.freeze_backbone.backbone_name
+        if hasattr(self.base_model, backbone_name):
+            backbone_layer = getattr(self.base_model, backbone_name)
+            for param in backbone_layer.parameters():
                 param.requires_grad = False
 
-        print("🧊 Froze backbone")
+        print(f"🧊 Froze backbone: {backbone_name}")
 
     def _unfreeze_all(self):
         """Alle Parameter trainierbar machen"""
