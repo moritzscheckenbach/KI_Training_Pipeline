@@ -42,7 +42,11 @@ class TransferLearningModel(nn.Module):
 
     def _apply_transfer_learning_strategy(self):
         """Wendet die Transfer Learning Strategie an"""
-        strategy = self.cfg.model.transfer_learning.freezing.strategy
+       # Wenn freezing explizit deaktiviert ist, benutze 'unfreeze_all' als Strategy
+        if self.cfg.model.transfer_learning.freezing.enabled is False:
+           strategy = "unfreeze_all"
+        else:
+           strategy = self.cfg.model.transfer_learning.freezing.strategy
 
         if strategy == "freeze_all_except_head":
             self._freeze_all_except_head()
@@ -65,7 +69,7 @@ class TransferLearningModel(nn.Module):
 
         # Nur Detection Head unfreezen
         if hasattr(self.base_model, "detection_head"):
-            for param in self.base_model.detection_head.parameters():
+            for param in self.base_model.roi_head.parameters():
                 param.requires_grad = True
 
         print("🧊 Froze all layers except detection head")
