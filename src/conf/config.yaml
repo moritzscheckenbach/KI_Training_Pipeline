@@ -1,10 +1,10 @@
 training:
-  epochs: 15
+  epochs: 3
   batch_size: 4
   learning_rate: 0.001
   early_stopping_patience: 10
   random_seed: 42
-  debug_mode: true
+  debug_mode: false
 scheduler:
   file: "scheduler"
   type: "StepLR"
@@ -22,7 +22,7 @@ augmentation:
   file: "no_augmentation"
 model:
   type: "object_detection"
-  file: "FastRCNN_001"
+  file: "fasterRCNN_001Resnet"
   transfer_learning:
     enabled: false
     path: ''
