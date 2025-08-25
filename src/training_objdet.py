@@ -242,26 +242,38 @@ def main(cfg: AIPipelineConfig):
         backbone_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.backbone_lr_multiplier
         head_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.head_lr_multiplier
         param_groups = []
-        # Add backbone parameters
-        if hasattr(model.base_model, "backbone"):
-            param_groups.append({"params": model.base_model.backbone.parameters(), "lr": backbone_lr, "name": "backbone"})
-        # Add detection head parameters
-        if hasattr(model.base_model, "detection_head"):
-            param_groups.append({"params": model.base_model.detection_head.parameters(), "lr": head_lr, "name": "detection_head"})
-        # Add any other parameters
+
+        # Backbone dynamisch aus Config
+        backbone_name = getattr(cfg.model.transfer_learning, "backbone_name", None)
+        backbone_params = set()
+        if backbone_name and hasattr(model.base_model, backbone_name):
+            backbone = getattr(model.base_model, backbone_name)
+            param_groups.append({"params": backbone.parameters(), "lr": backbone_lr, "name": backbone_name})
+            backbone_params = set(backbone.parameters())
+
+        # Head dynamisch aus Config
+        head_name = getattr(cfg.model.transfer_learning, "head_name", None)
+        head_params = set()
+        if head_name and hasattr(model.base_model, head_name):
+            head = getattr(model.base_model, head_name)
+            param_groups.append({"params": head.parameters(), "lr": head_lr, "name": head_name})
+            head_params = set(head.parameters())
+
+        # Alle anderen Parameter (nicht Backbone, nicht Head)
         other_params = []
-        backbone_params = set(model.base_model.backbone.parameters()) if hasattr(model.base_model, "backbone") else set()
-        head_params = set(model.base_model.detection_head.parameters()) if hasattr(model.base_model, "detection_head") else set()
         for param in model.parameters():
             if param not in backbone_params and param not in head_params:
                 other_params.append(param)
         if other_params:
             param_groups.append({"params": other_params, "lr": cfg.training.learning_rate, "name": "other"})
+
         optimizer_lib = importlib.import_module("utils.optimizer")
         optimizer = optimizer_lib.get_optimizer(param_groups, cfg)
-        logger.info(f"🔧 Using Transfer Learning Optimizer:")
-        logger.info(f"   Backbone LR: {backbone_lr}")
-        logger.info(f"   Head LR: {head_lr}")
+
+        logger.info("🔧 Using Transfer Learning Optimizer:")
+        logger.info(f"   {backbone_name} LR: {backbone_lr}")
+        logger.info(f"   {head_name} LR: {head_lr}")
+
     else:
         optimizer_lib = importlib.import_module("utils.optimizer")
         optimizer = optimizer_lib.get_optimizer(model.parameters(), cfg)

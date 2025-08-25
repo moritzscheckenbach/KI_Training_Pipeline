@@ -62,7 +62,7 @@ class TransferLearningModel(nn.Module):
             raise ValueError(f"Unknown transfer learning strategy: {strategy}")
 
     def _freeze_all_except_head(self):
-        detection_head = self.cfg.model.transfer_learning.freezing.freeze_all_except_head.head_name
+        detection_head = self.cfg.model.transfer_learning.head_name
         """Friert alles außer dem Detection Head ein"""
         # Alle Parameter einfrieren
         for param in self.base_model.parameters():
@@ -79,10 +79,10 @@ class TransferLearningModel(nn.Module):
         freeze_until_layer = self.cfg.model.transfer_learning.freezing.freeze_early_layers.freeze_until_layer
 
         # Dynamischen Backbone-Namen aus der Config nutzen, Fallback auf "backbone"
-        backbone_name = getattr(self.cfg.model.transfer_learning.freezing.freeze_early_layers, "backbone_name", None)
+        backbone_name = getattr(self.cfg.model.transfer_learning, "backbone_name", None)
         if backbone_name is None:
             # Falls nicht gesetzt, prüfen ob es unter freeze_backbone konfiguriert ist (Kompatibilität)
-            backbone_name = getattr(self.cfg.model.transfer_learning.freezing.freeze_backbone, "backbone_name", "backbone")
+            backbone_name = getattr(self.cfg.model.transfer_learning, "backbone_name", "backbone")
 
         if hasattr(self.base_model, backbone_name):
             backbone = getattr(self.base_model, backbone_name)
@@ -97,7 +97,7 @@ class TransferLearningModel(nn.Module):
 
     def _freeze_backbone(self):
         """Friert das gesamte Backbone ein"""
-        backbone_name = self.cfg.model.transfer_learning.freezing.freeze_backbone.backbone_name
+        backbone_name = self.cfg.model.transfer_learning.backbone_name
         if hasattr(self.base_model, backbone_name):
             backbone_layer = getattr(self.base_model, backbone_name)
             for param in backbone_layer.parameters():

@@ -160,6 +160,10 @@ mode = st.radio("Modus wählen", mode_options, horizontal=True)
 # =========================
 architecture = None
 model = None
+# Default values
+head_name = "detection_head"
+backbone_name = "backbone"
+
 
 if mode == "Training aus Architektur":
     st.subheader("5. Architektur auswählen")
@@ -180,6 +184,8 @@ elif mode == "Transferlearning: selbstrainiertes Modell":
         model = None
     else:
         model = st.selectbox("Modell", model_options)
+        head_name = st.text_input("Name des Heads", value="detection_head")
+        backbone_name = st.text_input("Name des Backbones", value="backbone")
 
 # =========================
 # Training Configuration
@@ -243,19 +249,8 @@ if mode == "Transferlearning: selbstrainiertes Modell":
                 ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"]
             )
 
-            # Default values
-            head_name = "detection_head"
-            backbone_name = "backbone"
-
-            if freezing_strategy == "freeze_all_except_head":
-                head_name = st.text_input("Name des Heads (wird nicht eingefroren)", value="detection_head")
-
-            if freezing_strategy == "freeze_backbone":
-                backbone_name = st.text_input("Name des Backbones (wird eingefroren)", value="backbone")
-
             if freezing_strategy == "freeze_early_layers":
-                backbone_name = st.text_input("ACHTUNG! Layers müssen children von Backbone sein. Name des Backbones:", value="backbone")
-                freeze_until_layer = st.number_input("Freeze Until Layer", min_value=1, max_value=50, value=6)
+                freeze_until_layer = st.number_input("Freeze Until Layer. ACHTUNG! Layers müssen children von Backbone sein.", min_value=1, max_value=50, value=6)
 
             if freezing_strategy == "custom_freeze":
                 st.markdown("**Custom Freeze Settings**")
@@ -301,15 +296,11 @@ config = {
             "enabled": mode == "Transferlearning: selbstrainiertes Modell",
             "path": f"trained_models/{task}/{model}/models/best_model_weights.pth" if model else "",
             "trans_file": "transferlearning",
+            "head_name": head_name,
+            "backbone_name": backbone_name,
             "freezing": {
                 "enabled": bool(freezing_enabled) if mode == "Transferlearning: selbstrainiertes Modell" else False,
                 "strategy": freezing_strategy if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled else "freeze_all_except_head",
-                "freeze_all_except_head": {
-                    "head_name": head_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_all_except_head" else "detection_head"
-                },
-                "freeze_backbone": {
-                    "backbone_name": backbone_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and (freezing_strategy == "freeze_backbone" or freezing_strategy == "freeze_early_layers") else "backbone"
-                },
                 "freeze_early_layers": {
                     "freeze_until_layer": int(freeze_until_layer) if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_early_layers" else 6
                 },
