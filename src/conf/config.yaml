@@ -23,7 +23,7 @@ model:
   type: "object_detection"
   file: "FastRCNN_001"
   transfer_learning:
-    enabled: true
+    enabled: false
     path: "trained_models/object_detection/20250822_130110_FastRCNN_001/models/best_model_weights.pth"
     trans_file: "transferlearning"
     freezing:
