@@ -21,12 +21,12 @@ from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.ops import box_convert
 from torchvision.transforms import v2 as T
-from torchvision.tv_tensors import BoundingBoxes
 from torchvision.utils import draw_bounding_boxes
 from tqdm import tqdm
 
 from conf.config import AIPipelineConfig
 from utils.COCO_Loader import CocoDataset
+from utils.COCO_Wrapper import COCOWrapper
 from utils.PASCAL_Loader import PascalDataset
 from utils.YOLO_Loader import YoloDataset
 
@@ -35,50 +35,20 @@ from utils.YOLO_Loader import YoloDataset
 def main(cfg: AIPipelineConfig):
     """
     Main function for training the model.
-    This function sets up the training environment, loads the model, datasets, and starts the training loop.
     """
-
-    # =============================================================================
-    # EXPERIMENT SETUP
-    # =============================================================================
+    # Experiment setup
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-    dataset_root = cfg.dataset.root
-    dataset_type = cfg.dataset.type
 
     transfer_learning_enabled = cfg.model.transfer_learning.enabled
     model_type = cfg.model.type
 
-    if transfer_learning_enabled:
-        model_name = cfg.model.transfer_learning.trans_file
-        experiment_name = f"{timestamp}_{cfg.model.file}_transfer"
-    else:
-        model_name = cfg.model.file
-        experiment_name = f"{timestamp}_{model_name}"
-
-    experiment_dir = f"trained_models/{model_type}/{experiment_name}"
-    os.makedirs(experiment_dir, exist_ok=True)
-    os.makedirs(f"{experiment_dir}/models", exist_ok=True)
-    os.makedirs(f"{experiment_dir}/tensorboard", exist_ok=True)
-    os.makedirs(f"{experiment_dir}/configs", exist_ok=True)
-
-    # =============================================================================
-    # LOGGER SETUP
-    # =============================================================================
-    debug_mode = cfg.training.debug_mode
-    if debug_mode:
-        logger_level = "DEBUG"
-    else:
-        logger_level = "INFO"
-
-    logger.remove()
-    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level=logger_level, colorize=True)
-
-    log_file_path = f"{experiment_dir}/training.log"
-    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=logger_level, rotation="100 MB", retention="10 days")
-
+    experiment_dir, experiment_name = setup_experiment_dir(timestamp, model_type, cfg.model.transfer_learning.trans_file if transfer_learning_enabled else cfg.model.file, transfer_learning_enabled)
     src = to_absolute_path("conf/config.yaml")
     shutil.copy(src, os.path.join(experiment_dir, "configs", "config.yaml"))
+
+    # Logger setup
+    debug_mode = cfg.training.debug_mode
+    log_file_path = setup_logger(experiment_dir, debug_mode)
 
     if debug_mode:
         logger.info("🔍 Debug mode is ENABLED - will check for black images and provide detailed logs")
@@ -87,22 +57,188 @@ def main(cfg: AIPipelineConfig):
         logger.info("🔄 Using Transfer Learning Mode")
     else:
         logger.info("🆕 Using Fresh Training Mode")
+
     logger.info(f"🚀 Starting experiment: {experiment_name}")
     logger.info(f"📁 Experiment directory: {experiment_dir}")
     logger.info(f"📝 Log file: {log_file_path}")
 
-    # =============================================================================
-    # MODEL LOADING
-    # =============================================================================
+    # Model loading
+    model, model_architecture, model_name = load_model(cfg)
+    model_need = model_architecture.get_model_need()
+
+    # Data augmentation
+    v2_train_tf, v2_eval_tf = setup_transforms(cfg, model_architecture)
+
+    # Dataset loading
+    train_dataset, val_dataset, test_dataset = load_datasets(cfg, v2_train_tf, v2_eval_tf)
+    train_dataloader, val_dataloader, test_dataloader = create_dataloaders(cfg, train_dataset, val_dataset, test_dataset)
+
+    # Model to device
+    device = setup_device(model)
+
+    # Optimizer setup
+    optimizer = setup_optimizer(cfg, model)
+
+    # Scheduler setup
+    scheduler, use_scheduler = setup_scheduler(cfg, optimizer)
+
+    # TensorBoard setup
+    writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
+    logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
+
+    # log model parameters
+    n_params = sum(p.numel() for p in model.parameters())
+    writer.add_scalar("Model/num_parameters", n_params, 0)
+
+    # Training loop
+    best_val_loss = float("inf")
+    patience_counter = 0
+
+    logger.info(f"🎯 Starting training loop for {cfg.training.epochs} epochs")
+    logger.info(f"⚙️ Batch size: {cfg.training.batch_size}, Learning rate: {cfg.training.learning_rate}")
+    logger.info(f"⏰ Early stopping patience: {cfg.training.early_stopping_patience}")
+
+    global_step = 0
+    batch_log_interval = getattr(cfg, "batch_log_interval", 20)
+    log_images_every_n_epochs = getattr(cfg, "log_images_every_n_epochs", 2)
+
+    for epoch in range(cfg.training.epochs):
+        clear_gpu_cache()
+        logger.info(f"📈 Epoch {epoch+1}/{cfg.training.epochs}")
+
+        # =============================================================================
+        # TRAINING PHASE
+        # =============================================================================
+        avg_train_loss, global_step = train_one_epoch(cfg, model, train_dataloader, optimizer, device, global_step, writer, model_need)
+
+        log_model_parameters(model, writer, epoch)
+
+        # Log train visualizations
+        if epoch % log_images_every_n_epochs == 0:
+            images, targets = next(iter(train_dataloader))
+            if images is not None and targets is not None:
+                images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
+                log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need)
+
+        # Validation
+        avg_val_loss, loss_dict = validate_model(cfg, model, val_dataloader, device, writer, epoch, model_need)
+
+        # Evaluation
+        evaluate_coco_metrics(cfg, model, val_dataloader, device, writer, epoch, model_need)
+
+        # Scheduler step
+        if use_scheduler:
+            if cfg.scheduler.type == "ReduceLROnPlateau":
+                scheduler.step(avg_val_loss)
+            else:
+                scheduler.step()
+            current_lr = optimizer.param_groups[0]["lr"]
+            writer.add_scalar("Learning_Rate", current_lr, epoch)
+            logger.info(f"📈 Current Learning Rate: {current_lr:.6f}")
+
+        # Log epoch-level scalars
+        writer.add_scalar("Loss/Train", avg_train_loss, epoch)
+        writer.add_scalar("Loss/Validation", avg_val_loss, epoch)
+
+        # Log loss components
+        if isinstance(loss_dict, dict):
+            for loss_name, loss_value in loss_dict.items():
+                scalar_value = loss_value.item() if isinstance(loss_value, torch.Tensor) else float(loss_value)
+                writer.add_scalar(f"Loss_Components/{loss_name}", scalar_value, epoch)
+
+        # Save checkpoints
+        is_best = avg_val_loss < best_val_loss
+        save_checkpoint(model, optimizer, epoch, avg_train_loss, avg_val_loss, experiment_dir, is_best=is_best)
+
+        # Early stopping logic
+        if is_best:
+            best_val_loss = avg_val_loss
+            patience_counter = 0
+        else:
+            patience_counter += 1
+            logger.info(f"⏰ Early stopping patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
+            if patience_counter >= cfg.training.early_stopping_patience:
+                logger.info("⏹️ Early stopping triggered.")
+                break
+
+    # Evaluation
+    logger.info("🧪 Starting test evaluation (loss)")
+    model.load_state_dict(torch.load(f"{experiment_dir}/models/best_model_weights.pth", weights_only=True))
+    avg_test_loss, _ = validate_model(cfg, model, test_dataloader, device, writer, cfg.training.epochs, model_need)
+    logger.info(f"🧪 Test Loss: {avg_test_loss:.4f}")
+    writer.add_scalar("Test/Loss", avg_test_loss, cfg.training.epochs)
+
+    # Confusion Matrix
+    build_confusion_matrix(cfg, model, test_dataloader, device, writer, cfg.dataset.num_classes, model_need)
+
+    # Finalize experiment
+    create_experiment_summary(cfg, experiment_name, model_name, timestamp, cfg.training.epochs, best_val_loss, avg_test_loss, experiment_dir)
+    writer.close()
+
+    # Final logging
+    logger.success(f"✅ Training completed!")
+    logger.info(f"📁 Results saved in: {experiment_dir}")
+    logger.info(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
+    logger.info(f"📊 TensorBoard: tensorboard --logdir={experiment_dir}/tensorboard")
+    logger.info(f"📋 Summary: {experiment_dir}/experiment_summary.yaml")
+    logger.info(f"📝 Training log: {log_file_path}")
+
+
+# =============================================================================
+# TRAIN FUNCTIONS
+# =============================================================================
+def setup_experiment_dir(timestamp: str, model_type: str, model_name: str, transfer_learning_enabled: bool) -> str:
+    """
+    Setup experiment directory structure
+    """
+    if transfer_learning_enabled:
+        experiment_name = f"{timestamp}_{model_name}_transfer"
+    else:
+        experiment_name = f"{timestamp}_{model_name}"
+
+    experiment_dir = f"trained_models/{model_type}/{experiment_name}"
+    os.makedirs(experiment_dir, exist_ok=True)
+    os.makedirs(f"{experiment_dir}/models", exist_ok=True)
+    os.makedirs(f"{experiment_dir}/tensorboard", exist_ok=True)
+    os.makedirs(f"{experiment_dir}/configs", exist_ok=True)
+
+    return experiment_dir, experiment_name
+
+
+def setup_logger(experiment_dir: str, debug_mode: bool) -> str:
+    """
+    Setup logger and return log file path
+    """
+    logger_level = "DEBUG" if debug_mode else "INFO"
+
+    logger.remove()
+    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level=logger_level, colorize=True)
+
+    log_file_path = f"{experiment_dir}/training.log"
+    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=logger_level, rotation="100 MB", retention="10 days")
+
+    return log_file_path
+
+
+def load_model(cfg: AIPipelineConfig):
+    """
+    Load model based on configuration
+    """
+    model_type = cfg.model.type
     try:
         if cfg.model.transfer_learning.enabled:
+            model_name = cfg.model.transfer_learning.trans_file
             model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
             model = model_architecture.build_model_tr(cfg=cfg)
             logger.info("✅ Transfer learning model loaded successfully")
         else:
+            model_name = cfg.model.file
             model_architecture = importlib.import_module(f"model_architecture.{model_type}.{model_name}")
             model = model_architecture.build_model(num_classes=cfg.dataset.num_classes)
             logger.info("✅ Fresh model loaded successfully")
+
+        return model, model_architecture, model_name
+
     except ImportError as e:
         logger.error(f"❌ Error loading model architecture: {e}")
         logger.error(f"Looking for: model_architecture.{model_type}.{model_name}")
@@ -111,23 +247,11 @@ def main(cfg: AIPipelineConfig):
         logger.error(f"❌ Error building model: {e}")
         raise
 
-    # # ---- TESTING MODEL INFERENCE MODE ----
-    # logger.info("Testing model inference mode...")
-    # model.eval()
-    # dummy_input = torch.randn(2, 3, 416, 416).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
-    # with torch.no_grad():
-    #     test_output = model(dummy_input)
-    # logger.info(f"Test output type: {type(test_output)}")
-    # if isinstance(test_output, list):
-    #     logger.info(f"Test output length: {len(test_output)}")
-    #     if len(test_output) > 0:
-    #         logger.info(f"First element keys: {list(test_output[0].keys()) if isinstance(test_output[0], dict) else 'not a dict'}")
-    # model.train()
-    # return
 
-    # =============================================================================
-    # AUGMENTATION
-    # =============================================================================
+def setup_transforms(cfg: AIPipelineConfig, model_architecture):
+    """
+    Setup data transforms and augmentations
+    """
     if cfg.model.transfer_learning.enabled:
         inputsize_x, inputsize_y = model_architecture.get_input_size(cfg=cfg)
     else:
@@ -138,7 +262,7 @@ def main(cfg: AIPipelineConfig):
     base_transform = augmentation.augment()
     logger.info(f"🔄 Using augmentation: {cfg.augmentation.file}")
 
-    # v2 Eval-Transform (deterministisch)
+    # v2 evaluation transforms
     val_base_transform = T.Compose(
         [
             T.ToImage(),
@@ -147,12 +271,20 @@ def main(cfg: AIPipelineConfig):
         ]
     )
 
-    v2_train_tf = COCOWrapper(base_transform, inputsize_x, inputsize_y)
-    v2_eval_tf = COCOWrapper(val_base_transform, inputsize_x, inputsize_y)
+    v2_train_tf = COCOWrapper(base_transform, inputsize_x, inputsize_y, cfg.training.debug_mode)
+    v2_eval_tf = COCOWrapper(val_base_transform, inputsize_x, inputsize_y, cfg.training.debug_mode)
 
-    # =============================================================================
-    # DATASET LOADING
-    # =============================================================================
+    return v2_train_tf, v2_eval_tf
+
+
+def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
+    """
+    Load datasets based on configuration
+    """
+    dataset_root = cfg.dataset.root
+    dataset_type = cfg.dataset.type
+    debug_mode = cfg.training.debug_mode
+
     logger.info(f"📊 Loading {dataset_type} dataset from: {dataset_root}")
 
     # TYPE COCO Dataset
@@ -193,6 +325,15 @@ def main(cfg: AIPipelineConfig):
 
     logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
 
+    return train_dataset, val_dataset, test_dataset
+
+
+def create_dataloaders(cfg: AIPipelineConfig, train_dataset, val_dataset, test_dataset):
+    """
+    Create dataloaders from datasets
+    """
+    debug_mode = cfg.training.debug_mode
+
     # Create PyTorch DataLoaders for each split in COCO Format
     train_dataloader = DataLoader(train_dataset, batch_size=cfg.training.batch_size, shuffle=True, num_workers=4, collate_fn=collate_fn)
     val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
@@ -204,9 +345,13 @@ def main(cfg: AIPipelineConfig):
                 img = images[n]
                 _check_img_range(img=img, img_id=f"dateloader_test img={n}")
 
-    # =============================================================================
-    # MODEL TO DEVICE
-    # =============================================================================
+    return train_dataloader, val_dataloader, test_dataloader
+
+
+def setup_device(model):
+    """
+    Setup device for training (gpu/cpu)
+    """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     logger.info(f"🖥️ Using device: {device}")
@@ -214,10 +359,13 @@ def main(cfg: AIPipelineConfig):
         clear_gpu_cache()
         logger.info(f"💾 GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB total")
         logger.info(f"💾 GPU Memory allocated: {torch.cuda.memory_allocated() / 1024**3:.2f} GB")
+    return device
 
-    # =============================================================================
-    # OPTIMIZER SETUP
-    # =============================================================================
+
+def setup_optimizer(cfg: AIPipelineConfig, model):
+    """
+    Setup optimizer based on configuration
+    """
     if cfg.model.transfer_learning.enabled and "backbone_lr_multiplier" in cfg.model.transfer_learning.lr:
         backbone_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.backbone_lr_multiplier
         head_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.head_lr_multiplier
@@ -239,7 +387,7 @@ def main(cfg: AIPipelineConfig):
             param_groups.append({"params": head.parameters(), "lr": head_lr, "name": head_name})
             head_params = set(head.parameters())
 
-        # Alle anderen Parameter (nicht Backbone, nicht Head)
+        # Other parameters (not Backbone, not Head)
         other_params = []
         for param in model.parameters():
             if param not in backbone_params and param not in head_params:
@@ -259,9 +407,13 @@ def main(cfg: AIPipelineConfig):
         optimizer = optimizer_lib.get_optimizer(model.parameters(), cfg)
         logger.info(f"🔧 Using optimizer: {cfg.optimizer.type}")
 
-    # =============================================================================
-    # SCHEDULER SETUP
-    # =============================================================================
+    return optimizer
+
+
+def setup_scheduler(cfg: AIPipelineConfig, optimizer):
+    """
+    Setup learning rate scheduler based on configuration
+    """
     scheduler_module = cfg.scheduler.file
     if scheduler_module:
         scheduler_lib = importlib.import_module(f"utils.{scheduler_module}")
@@ -273,279 +425,209 @@ def main(cfg: AIPipelineConfig):
         use_scheduler = False
         logger.info("📅 No scheduler configured")
 
-    # =============================================================================
-    # TENSORBOARD SETUP
-    # =============================================================================
-    writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
-    logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
+    return scheduler, use_scheduler
 
-    # =============================================================================
-    # TRAINING LOOP (mit erweitertem Logging)
-    # =============================================================================
-    best_val_loss = float("inf")
-    patience_counter = 0
 
-    logger.info(f"🎯 Starting training loop for {cfg.training.epochs} epochs")
-    logger.info(f"⚙️ Batch size: {cfg.training.batch_size}, Learning rate: {cfg.training.learning_rate}")
-    logger.info(f"⏰ Early stopping patience: {cfg.training.early_stopping_patience}")
+def log_model_parameters(model, writer, epoch):
+    """
+    Log model parameters to Tensorboard once per epoch
+    """
+    for name, p in model.named_parameters():
+        writer.add_histogram(f"Grads/{name}", p.grad.detach().cpu().numpy(), epoch)
 
-    global_step = 0
-    batch_log_interval = getattr(cfg, "batch_log_interval", 20)
-    log_images_every_n_epochs = getattr(cfg, "log_images_every_n_epochs", 2)
 
-    # Einmalige Logs
-    n_params = sum(p.numel() for p in model.parameters())
-    writer.add_scalar("Model/num_parameters", n_params, 0)
-
-    for epoch in range(cfg.training.epochs):
-        clear_gpu_cache()
-        logger.info(f"📈 Epoch {epoch+1}/{cfg.training.epochs}")
-
-        # ------------------------
-        # Training Phase
-        # ------------------------
-        model.train()
-        train_loss = 0.0
-
-        for i, (images, targets) in enumerate(train_dataloader):
-            if images is None or targets is None:
-                continue
-
-            model_need = "Tensor"
-
-            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
-
-            logger.debug(f"Type Images: {type(images)}")
-            logger.debug(f"Images: {images}")
-            logger.debug(f"Type Processed Targets: {type(processed_targets)}")
-            logger.debug(f"Processed Targets: {processed_targets}")
-
-            ########    WIE ARCHITEKTUR??????
-            optimizer.zero_grad()
-            model_output = model(images, processed_targets)
-            loss_dict = model_output  # model_output to loss_dict converter !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            losses = sum(loss for loss in loss_dict.values())
-
-            losses.backward()
-
-            # Grad-Histogramme (optional: nur jede n-te Epoche)
-            if epoch % 1 == 0 and i == (len(train_dataloader) - 1):
-                for name, p in model.named_parameters():
-                    if p.grad is not None:
-                        writer.add_histogram(f"Grads/{name}", p.grad.detach().cpu().numpy(), epoch)
-
-            optimizer.step()
-
-            train_loss += losses.item()
-
-            # --- Batch-Level TensorBoard Logging ---
-            global_step += 1
-            writer.add_scalar("Batch/Loss", losses.item(), global_step)
-            for k, v in loss_dict.items():
-                writer.add_scalar(f"Batch/LossComponents/{k}", (v.item() if isinstance(v, torch.Tensor) else float(v)), global_step)
-
-            for gi, pg in enumerate(optimizer.param_groups):
-                writer.add_scalar(f"LR/group_{gi}", pg["lr"], global_step)
-
-            try:
-                gnorm = grad_global_norm(model.parameters())
-                writer.add_scalar("Grad/global_norm", gnorm, global_step)
-            except Exception:
-                pass
-
-            if torch.cuda.is_available():
-                mem_alloc = torch.cuda.memory_allocated() / 1024**2
-                mem_reserved = torch.cuda.memory_reserved() / 1024**2
-                writer.add_scalar("GPU/mem_alloc_MB", mem_alloc, global_step)
-                writer.add_scalar("GPU/mem_reserved_MB", mem_reserved, global_step)
-
-            if (i + 1) % batch_log_interval == 0:
-                # logger.info(f"   Batch {i+1}/{len(train_dataloader)}, Loss: {losses.item():.4f}, GradNorm: {gnorm if 'gnorm' in locals() else 'n/a'}")
-                pass
-            # --- Train Image-Logging (erste Batch, alle n Epochen) ---
-            if i == 0 and (epoch % log_images_every_n_epochs == 0):
-                with torch.no_grad():
-                    model.eval()
-                    if model_need == "Tensor":
-                        imgs_vis = [img.detach().cpu() for img in images[:4]]
-                        preds = model(images[:4])
-                    else:
-                        imgs_vis = [img.detach().cpu() for img in images[:4]]
-                        preds = model([img.to(device) for img in images[:4]])
-                    model.train()
-                grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds, debug_mode=debug_mode)
-                writer.add_image("Train/GT_vs_Pred", grid, epoch)
-
-        avg_train_loss = train_loss / len(train_dataloader)
-
-        # Parameter-Histogramme (einmal pro Epoche)
-        for name, p in model.named_parameters():
-            writer.add_histogram(f"Params/{name}", p.detach().cpu().numpy(), epoch)
-
-        # =============================================================================
-        # VAL EVALUATION (Loss)
-        # =============================================================================
-        logger.info("🧪 Starting val evaluation (loss)")
-        model.train()  # (bewusst: Loss-Forward in train(), aber mit no_grad)
-        val_loss = 0.0
-        with torch.no_grad():
-            for images, targets in val_dataloader:
-                if images is None or targets is None:
-                    continue
-                images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
-                loss_dict = model(images, processed_targets)
-                losses = sum(loss for loss in loss_dict.values())
-                val_loss += losses.item()
-
-        avg_val_loss = val_loss / max(1, len(val_dataloader))
-        logger.info(f"🧪 Val Loss: {avg_val_loss:.4f}")
-        # Hinweis: Epochen-Index für TB - hier 'epoch' statt 'cfg.training.epochs' sinnvoller,
-        # sonst wird immer in dieselbe Step-Nummer geschrieben.
-        writer.add_scalar("Val/Loss", avg_val_loss, epoch)
-
-        # =============================================================================
-        # COCO EVALUATION (Metrics)
-        # =============================================================================
-        def _get(m: dict, key: str, default=None):
-            return m[key] if (m is not None and key in m) else default
-
-        def _get_float(m: dict, key: str):
-            v = _get(m, key, None)
-            try:
-                return float(v) if v is not None else None
-            except Exception:
-                return None
-
-        m = evaluate_coco_from_loader(
-            model=model,
-            data_loader=val_dataloader,
-            device=device,
-            iou_type="bbox",
-            input_format=model_need,
-        )
-
-        if m is not None:
-            # --- Gesamtskalare, nur loggen wenn vorhanden ---
-            for k in ("AP", "AP50", "AP75", "AP_small", "AP_medium", "AP_large", "AR_1", "AR_10", "AR_100", "AR_small", "AR_medium", "AR_large"):
-                v = _get_float(m, k)
-                if v is not None and not (isinstance(v, float) and (v != v)):  # kein NaN
-                    writer.add_scalar(f"COCO/{k}", v, epoch)
-
-            # --- Per-Class (robust) ---
-            per_class = _get(m, "per_class", {}) or {}
-            pc_AP = per_class.get("AP", [])
-            pc_AR = per_class.get("AR", [])
-            cat_ids = per_class.get("cat_ids", list(range(len(pc_AP))))  # Fallback
-
-            # Nur loggen, wenn überhaupt Werte vorhanden sind
-            if isinstance(pc_AP, (list, tuple)) and len(pc_AP) > 0:
-                pc_AP = np.array(pc_AP, dtype=float)
-                writer.add_histogram("COCO/PerClass/AP", pc_AP, epoch)
-            if isinstance(pc_AR, (list, tuple)) and len(pc_AR) > 0:
-                pc_AR = np.array(pc_AR, dtype=float)
-                writer.add_histogram("COCO/PerClass/AR", pc_AR, epoch)
-
-            # Einzelwerte je Klasse (nur, wenn Dimensionen passen)
-            if isinstance(cat_ids, (list, tuple)) and len(cat_ids) == len(pc_AP) == len(pc_AR):
-                for cat_id, ap, ar in zip(cat_ids, pc_AP, pc_AR):
-                    if ap == ap:  # not NaN
-                        writer.add_scalar(f"COCO/PerClass/AP/{cat_id}", float(ap), epoch)
-                    if ar == ar:
-                        writer.add_scalar(f"COCO/PerClass/AR/{cat_id}", float(ar), epoch)
-
-            writer.flush()
-        else:
-            logger.warning("COCO-Evaluation lieferte kein Ergebnis (m is None) - überspringe TB-Logging.")
-
-        # --- Scheduler Step ---
-        if use_scheduler:
-            if cfg.scheduler.type == "ReduceLROnPlateau":
-                scheduler.step(avg_val_loss)
-            else:
-                scheduler.step()
-            current_lr = optimizer.param_groups[0]["lr"]
-            writer.add_scalar("Learning_Rate", current_lr, epoch)
-            logger.info(f"📈 Current Learning Rate: {current_lr:.6f}")
-
-        # # --- Epoch-Level Scalars ---
-        writer.add_scalar("Loss/Train", avg_train_loss, epoch)
-        writer.add_scalar("Loss/Validation", avg_val_loss, epoch)
-
-        # Einzelne Loss-Komponenten (von letzter Val-Iteration)
-        if isinstance(loss_dict, dict):
-            for loss_name, loss_value in loss_dict.items():
-                scalar_value = loss_value.item() if isinstance(loss_value, torch.Tensor) else float(loss_value)
-                writer.add_scalar(f"Loss_Components/{loss_name}", scalar_value, epoch)
-
-        # Speichere auch letztes Model
-        torch.save(
-            {
-                "epoch": epoch,
-                "model_state_dict": model.state_dict(),
-                "optimizer_state_dict": optimizer.state_dict(),
-                "train_loss": avg_train_loss,
-                "val_loss": avg_val_loss,
-                "config": cfg,
-            },
-            f"{experiment_dir}/models/last_model.pth",
-        )
-
-        # Model Checkpointing
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
-            patience_counter = 0
-
-            torch.save(model.state_dict(), f"{experiment_dir}/models/best_model_weights.pth")
-
-            checkpoint_info = {
-                "epoch": epoch,
-                "train_loss": avg_train_loss,
-                "val_loss": avg_val_loss,
-                "optimizer_state_dict": optimizer.state_dict(),
-            }
-            torch.save(checkpoint_info, f"{experiment_dir}/models/best_model_info.pth")
-
-            logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
-        else:
-            patience_counter += 1
-            logger.info(f"⏰ Early stopping patience counter: {patience_counter}/{cfg.training.early_stopping_patience}")
-            if patience_counter >= cfg.training.early_stopping_patience:
-                logger.info("⏹️ Early stopping triggered.")
-                break
-
-    # =============================================================================
-    # TEST EVALUATION (Loss)
-    # =============================================================================
-    logger.info("🧪 Starting test evaluation (loss)")
-    model.load_state_dict(torch.load(f"{experiment_dir}/models/best_model_weights.pth", weights_only=True))
+def train_one_epoch(cfg: AIPipelineConfig, model, train_dataloader, optimizer, device, global_step, writer, model_need):
+    """
+    Train model for one epoch
+    """
     model.train()
-    test_loss = 0.0
+    train_loss = 0.0
+
+    for i, (images, targets) in enumerate(train_dataloader):
+        if images is None or targets is None:
+            continue
+
+        images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
+
+        logger.debug(f"Type Images: {type(images)}")
+        logger.debug(f"Images: {images}")
+        logger.debug(f"Type Processed Targets: {type(processed_targets)}")
+        logger.debug(f"Processed Targets: {processed_targets}")
+
+        optimizer.zero_grad()
+        model_output = model(images, processed_targets)
+        loss_dict = model_output
+        losses = sum(loss for loss in loss_dict.values())
+
+        losses.backward()
+        optimizer.step()
+        train_loss += losses.item()
+
+        # --- Batch-Level TensorBoard Logging ---
+        global_step += 1
+        writer.add_scalar("Batch/Loss", losses.item(), global_step)
+        for k, v in loss_dict.items():
+            writer.add_scalar(f"Batch/LossComponents/{k}", (v.item() if isinstance(v, torch.Tensor) else float(v)), global_step)
+
+        for gi, pg in enumerate(optimizer.param_groups):
+            writer.add_scalar(f"LR/group_{gi}", pg["lr"], global_step)
+
+        try:
+            gnorm = grad_global_norm(model.parameters())
+            writer.add_scalar("Grad/global_norm", gnorm, global_step)
+        except Exception:
+            pass
+
+        if torch.cuda.is_available():
+            mem_alloc = torch.cuda.memory_allocated() / 1024**2
+            mem_reserved = torch.cuda.memory_reserved() / 1024**2
+            writer.add_scalar("GPU/mem_alloc_MB", mem_alloc, global_step)
+            writer.add_scalar("GPU/mem_reserved_MB", mem_reserved, global_step)
+
+    avg_train_loss = train_loss / len(train_dataloader)
+    return avg_train_loss, global_step
+
+
+def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, device, writer, epoch, model_need):
+    """
+    Log visualizations to TensorBoard
+    """
+    with torch.no_grad():
+        model.eval()
+        if model_need == "Tensor":
+            imgs_vis = [img.detach().cpu() for img in images[:4]]
+            preds = model(images[:4])
+        else:
+            imgs_vis = [img.detach().cpu() for img in images[:4]]
+            preds = model([img.to(device) for img in images[:4]])
+        model.train()
+
+    grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds, debug_mode=cfg.training.debug_mode)
+    writer.add_image("Train/GT_vs_Pred", grid, epoch)
+
+
+def validate_model(cfg: AIPipelineConfig, model, val_dataloader, device, writer, epoch, model_need):
+    """
+    Validate model and log results
+    """
+    logger.info("🧪 Starting val evaluation (loss)")
+    model.train()
+    val_loss = 0.0
     with torch.no_grad():
         for images, targets in val_dataloader:
             if images is None or targets is None:
                 continue
-            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
-
+            images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
             loss_dict = model(images, processed_targets)
             losses = sum(loss for loss in loss_dict.values())
-            test_loss += losses.item()
-    avg_test_loss = test_loss / len(val_dataloader)
-    logger.info(f"🧪 Test Loss: {avg_test_loss:.4f}")
-    writer.add_scalar("Test/Loss", avg_test_loss, cfg.training.epochs)
+            val_loss += losses.item()
 
-    # =============================================================================
-    # CONFUSION MATRIX AUF TESTDATEN (Detections + CM in TensorBoard)
-    # =============================================================================
+    avg_val_loss = val_loss / max(1, len(val_dataloader))
+    logger.info(f"🧪 Val Loss: {avg_val_loss:.4f}")
+    writer.add_scalar("Val/Loss", avg_val_loss, epoch)
+
+    return avg_val_loss, loss_dict
+
+
+def evaluate_coco_metrics(cfg: AIPipelineConfig, model, val_dataloader, device, writer, epoch, model_need):
+    """
+    Evaluate model using COCO metrics
+    """
+
+    def _get(m: dict, key: str, default=None):
+        return m[key] if (m is not None and key in m) else default
+
+    def _get_float(m: dict, key: str):
+        v = _get(m, key, None)
+        try:
+            return float(v) if v is not None else None
+        except Exception:
+            return None
+
+    m = evaluate_coco_from_loader(
+        model=model,
+        data_loader=val_dataloader,
+        device=device,
+        iou_type="bbox",
+        input_format=model_need,
+    )
+
+    if m is not None:
+        # log overall metrics
+        for k in ("AP", "AP50", "AP75", "AP_small", "AP_medium", "AP_large", "AR_1", "AR_10", "AR_100", "AR_small", "AR_medium", "AR_large"):
+            v = _get_float(m, k)
+            if v is not None and not (isinstance(v, float) and (v != v)):  # kein NaN
+                writer.add_scalar(f"COCO/{k}", v, epoch)
+
+        # log per-class metrics
+        per_class = _get(m, "per_class", {}) or {}
+        pc_AP = per_class.get("AP", [])
+        pc_AR = per_class.get("AR", [])
+        cat_ids = per_class.get("cat_ids", list(range(len(pc_AP))))  # Fallback
+
+        if isinstance(pc_AP, (list, tuple)) and len(pc_AP) > 0:
+            pc_AP = np.array(pc_AP, dtype=float)
+            writer.add_histogram("COCO/PerClass/AP", pc_AP, epoch)
+        if isinstance(pc_AR, (list, tuple)) and len(pc_AR) > 0:
+            pc_AR = np.array(pc_AR, dtype=float)
+            writer.add_histogram("COCO/PerClass/AR", pc_AR, epoch)
+
+        if isinstance(cat_ids, (list, tuple)) and len(cat_ids) == len(pc_AP) == len(pc_AR):
+            for cat_id, ap, ar in zip(cat_ids, pc_AP, pc_AR):
+                if ap == ap:  # not NaN
+                    writer.add_scalar(f"COCO/PerClass/AP/{cat_id}", float(ap), epoch)
+                if ar == ar:
+                    writer.add_scalar(f"COCO/PerClass/AR/{cat_id}", float(ar), epoch)
+
+        writer.flush()
+    else:
+        logger.warning("COCO evaluation got no result (m is None) - skipping TB logging.")
+
+    return m
+
+
+def save_checkpoint(model, optimizer, epoch, avg_train_loss, avg_val_loss, experiment_dir, is_best=False):
+    """
+    Save model checkpoint.
+    """
+    checkpoint = {
+        "epoch": epoch,
+        "model_state_dict": model.state_dict(),
+        "optimizer_state_dict": optimizer.state_dict(),
+        "train_loss": avg_train_loss,
+        "val_loss": avg_val_loss,
+    }
+
+    torch.save(checkpoint, f"{experiment_dir}/models/last_model.pth")
+
+    # Save best model if applicable
+    if is_best:
+        torch.save(model.state_dict(), f"{experiment_dir}/models/best_model_weights.pth")
+
+        best_info = {
+            "epoch": epoch,
+            "train_loss": avg_train_loss,
+            "val_loss": avg_val_loss,
+            "optimizer_state_dict": optimizer.state_dict(),
+        }
+        torch.save(best_info, f"{experiment_dir}/models/best_model_info.pth")
+        logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
+
+
+def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device, writer, num_classes, model_need):
+    """
+    Build confusion matrix for test set
+    """
     logger.info("🧪 Building confusion matrix on test set")
     model.eval()
     all_preds = []
     all_gts = []
 
     with torch.no_grad():
-        for images, targets in val_dataloader:
+        for images, targets in test_dataloader:
             if images is None or targets is None:
                 continue
-            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
+            images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
 
             detections = model(images)  # eval -> list of dicts
 
@@ -585,15 +667,19 @@ def main(cfg: AIPipelineConfig):
     writer.add_figure("Test/ConfusionMatrix_IOU0.5", fig, global_step=0)
     plt.close(fig)
 
-    # =============================================================================
-    # EXPERIMENT SUMMARY
-    # =============================================================================
+    return cm_ext
+
+
+def create_experiment_summary(cfg: AIPipelineConfig, experiment_name, model_name, timestamp, total_epochs, best_val_loss, avg_test_loss, experiment_dir):
+    """
+    Create and save experiment summary
+    """
     clean_config = OmegaConf.to_container(cfg, resolve=True)
     summary = {
         "experiment_name": experiment_name,
         "model_architecture": model_name,
         "timestamp": timestamp,
-        "total_epochs": epoch + 1,
+        "total_epochs": total_epochs,
         "best_val_loss": best_val_loss,
         "test_loss": avg_test_loss,
         "config": clean_config,
@@ -601,24 +687,11 @@ def main(cfg: AIPipelineConfig):
 
     with open(f"{experiment_dir}/experiment_summary.yaml", "w", encoding="utf-8") as f:
         yaml.dump(summary, f, default_flow_style=False, allow_unicode=True)
-    writer.close()
-
-    # =============================================================================
-    # FINAL LOGGING
-    # =============================================================================
-    logger.success(f"✅ Training completed!")
-    logger.info(f"📁 Results saved in: {experiment_dir}")
-    logger.info(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
-    logger.info(f"📊 TensorBoard: tensorboard --logdir={experiment_dir}/tensorboard")
-    logger.info(f"📋 Summary: {experiment_dir}/experiment_summary.yaml")
-    logger.info(f"📝 Training log: {log_file_path}")
 
 
-# ==============================
-# Hilfsfunktionen
-# ==============================
-
-
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
 def collate_fn(batch):
     """Detection-collate: gebe Listen zurück, kompatibel mit variabler Boxanzahl."""
     images = []
@@ -819,271 +892,6 @@ def confusion_matrix_detection(preds, gts, num_classes: int, iou_thr: float = 0.
     return cm_ext
 
 
-def metrics_from_cm(cm_ext: np.ndarray):
-    """
-    Erwartet erweiterte CM (GT-Zeilen, Pred-Spalten, letzte Spalte=FN, letzte Zeile=FP).
-    Liefert Mikro-/Makro-Precision/Recall/F1, Accuracy sowie per-class Werte.
-    """
-    num_classes = cm_ext.shape[0] - 1
-    cm = cm_ext[:num_classes, :num_classes]
-    fn = cm_ext[:num_classes, -1]
-    fp = cm_ext[-1, :num_classes]
-
-    tp = np.diag(cm)
-    support = tp + fn  # GT je Klasse
-    predicted = tp + fp  # Pred je Klasse
-
-    with np.errstate(divide="ignore", invalid="ignore"):
-        prec_c = np.where(predicted > 0, tp / predicted, 0.0)
-        rec_c = np.where(support > 0, tp / support, 0.0)
-        f1_c = np.where((prec_c + rec_c) > 0, 2 * prec_c * rec_c / (prec_c + rec_c), 0.0)
-
-    TP, FP, FN = tp.sum(), fp.sum(), fn.sum()
-    precision_micro = float(TP / (TP + FP)) if (TP + FP) > 0 else 0.0
-    recall_micro = float(TP / (TP + FN)) if (TP + FN) > 0 else 0.0
-    f1_micro = 2 * precision_micro * recall_micro / (precision_micro + recall_micro) if (precision_micro + recall_micro) > 0 else 0.0
-
-    valid = support > 0
-    if valid.any():
-        precision_macro = float(np.mean(prec_c[valid]))
-        recall_macro = float(np.mean(rec_c[valid]))
-        f1_macro = float(np.mean(f1_c[valid]))
-    else:
-        precision_macro = recall_macro = f1_macro = 0.0
-
-    total_gt = support.sum()
-    accuracy = float(TP / total_gt) if total_gt > 0 else 0.0
-
-    return {
-        "per_class": {"precision": prec_c, "recall": rec_c, "f1": f1_c, "support": support},
-        "micro": {"precision": precision_micro, "recall": recall_micro, "f1": f1_micro},
-        "macro": {"precision": precision_macro, "recall": recall_macro, "f1": f1_macro},
-        "accuracy": accuracy,
-    }
-
-
-class COCOWrapper:
-    """Wrappt image+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
-    ohne Zusatz-Keys (z. B. image_id) zu verlieren.
-    """
-
-    def __init__(self, base_tf, inputsize_x, inputsize_y, debug_enabled=False):
-        # HINWEIS: Resize übernimmt hier unverändert (inputsize_x, inputsize_y),
-        # wie in deinem Originalcode.
-        self.debug_enabled = debug_enabled
-        self.base_tf = T.Compose(
-            [
-                base_tf,
-                T.Resize((inputsize_y, inputsize_x)),
-            ]
-        )
-
-    def __call__(self, img, target):
-        # Canvas-Size bestimmen (H, W)
-        if hasattr(img, "size"):  # PIL: (W, H)
-            w, h = img.size
-        elif hasattr(img, "shape") and len(img.shape) == 3:  # Tensor: CxHxW
-            _, h, w = img.shape
-        else:
-            h = w = None  # wird von BoundingBoxes für einige Ops benötigt
-
-        # Original-Target flach kopieren, um Keys nachher ggf. zu restaurieren
-        original_target = target if isinstance(target, dict) else None
-
-        # --- Eingaben normalisieren -> Dict mit BoundingBoxes im Format XYWH ---
-        if isinstance(target, list):
-            # Liste aus COCO-Annots -> Minimales Dict (XYWH + labels)
-            boxes, labels = [], []
-            for ann in target:
-                bbox = ann.get("bbox")
-                if bbox is None:
-                    continue
-                x, y, bw, bh = bbox  # COCO: XYWH
-                boxes.append([x, y, bw, bh])
-                labels.append(ann.get("category_id", 0))
-
-            boxes_t = torch.tensor(boxes, dtype=torch.float32) if boxes else torch.zeros((0, 4), dtype=torch.float32)
-            labels_t = torch.tensor(labels, dtype=torch.int64) if labels else torch.zeros((0,), dtype=torch.int64)
-
-            target = {
-                "boxes": BoundingBoxes(boxes_t, format="XYWH", canvas_size=(h, w)),
-                "labels": labels_t,
-            }
-
-        elif isinstance(target, dict):
-            # Dict: ALLE Keys erhalten, nur boxes/labels sauber in tv_tensors packen
-            tgt = dict(target)  # flache Kopie
-            boxes = tgt.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
-            labels = tgt.get("labels", torch.zeros((0,), dtype=torch.int64))
-
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-            labels = torch.as_tensor(labels, dtype=torch.int64)
-
-            tgt["boxes"] = BoundingBoxes(boxes, format="XYWH", canvas_size=(h, w))
-            tgt["labels"] = labels
-            target = tgt
-
-        else:
-            raise TypeError(f"COCOWrapper: unerwarteter target-type {type(target)}")
-
-        # --- Transforms anwenden ---
-        img, target = self.base_tf(img, target)
-
-        # --- BoundingBoxes zurück in normalen Tensor (XYWH) ---
-        if isinstance(target, dict):
-            bb = target.get("boxes", None)
-            if isinstance(bb, BoundingBoxes):
-                boxes_t = torch.as_tensor(bb, dtype=torch.float32)
-                # Falls ein Transform das Format geändert hat, zurück auf XYWH bringen
-                fmt = getattr(bb, "format", None)
-                fmt_str = fmt.lower() if isinstance(fmt, str) else None
-                if fmt_str and fmt_str != "xywh":
-                    boxes_t = box_convert(boxes_t, in_fmt=fmt_str, out_fmt="xywh")
-                target["boxes"] = boxes_t
-            elif bb is not None:
-                target["boxes"] = torch.as_tensor(bb, dtype=torch.float32)
-            else:
-                target["boxes"] = torch.zeros((0, 4), dtype=torch.float32)
-
-            # --- Zusatz-Keys restaurieren, falls während der Transforms verloren ---
-            if original_target is not None and isinstance(original_target, dict):
-                for k, v in original_target.items():
-                    if k not in target:
-                        target[k] = v
-
-            # Dtypes defensiv angleichen (ohne Logik/Geometrie zu ändern)
-            if "labels" in target:
-                target["labels"] = torch.as_tensor(target["labels"], dtype=torch.int64)
-            if "iscrowd" in target:
-                target["iscrowd"] = torch.as_tensor(target["iscrowd"], dtype=torch.int64)
-            if "area" in target and torch.is_tensor(target["area"]):
-                target["area"] = target["area"].to(torch.float32)
-            if "image_id" in target:
-                target["image_id"] = torch.as_tensor(target["image_id"], dtype=torch.int64)
-
-        return img, target
-
-
-def _get_img_wh_from_target(tgt: Dict[str, Any], img_tensor: Optional[torch.Tensor]) -> Tuple[int, int]:
-    """
-    Versucht width/height robust aus dem Target zu lesen.
-    Fallback: Tensorgröße (C,H,W) falls verfügbar.
-    """
-    if "width" in tgt and "height" in tgt:
-        return int(tgt["width"]), int(tgt["height"])
-    if "orig_size" in tgt:
-        # üblich: (H, W)
-        h, w = tgt["orig_size"]
-        return int(w), int(h)
-    if "size" in tgt:
-        h, w = tgt["size"]
-        return int(w), int(h)
-    if img_tensor is not None:
-        # Tensor: (C, H, W)
-        _, h, w = img_tensor.shape
-        return int(w), int(h)
-    # Letzter Fallback
-    return 0, 0
-
-
-@torch.no_grad()
-def _build_coco_gt_from_loader(
-    data_loader,
-) -> COCO:
-    """
-    Erstellt ein COCO-GT-Objekt (in-memory) aus dem DataLoader.
-    Erwartet Targets mit:
-      - "image_id" (Tensor oder int),
-      - "boxes" (XYWH; evtl. normalisiert),
-      - "labels" (contiguous ids, die über contig_to_catid auf COCO cat_id gemappt werden),
-      - optional: "width"/"height" oder "orig_size"/"size".
-    """
-    images: List[Dict[str, Any]] = []
-    annotations: List[Dict[str, Any]] = []
-    ann_id = 1  # laufende ID
-
-    # 1) Labels sammeln, um Kategorien 1..K zu definieren
-    seen_labels = set()
-    for batch in data_loader:
-        imgs, tgts = batch
-        for tgt in tgts:
-            lbs = tgt["labels"]
-            if isinstance(lbs, torch.Tensor):
-                lbs = lbs.cpu().tolist()
-            else:
-                lbs = list(lbs)
-            seen_labels.update(int(l) for l in lbs)
-
-    categories = [{"id": int(l), "name": str(int(l))} for l in sorted(seen_labels)]
-
-    # 2) GT aufbauen
-    for batch in data_loader:
-        imgs, tgts = batch
-
-        for img, tgt in zip(imgs, tgts):
-            img_id = int(tgt["image_id"].item() if isinstance(tgt["image_id"], torch.Tensor) else tgt["image_id"])
-            img_w, img_h = _get_img_wh_from_target(tgt, img)
-
-            images.append(
-                {
-                    "id": img_id,
-                    "width": img_w,
-                    "height": img_h,
-                }
-            )
-
-            gt_boxes = tgt["boxes"]
-            if isinstance(gt_boxes, torch.Tensor):
-                gt_boxes = gt_boxes.clone().cpu()
-            else:
-                gt_boxes = torch.as_tensor(gt_boxes)
-
-            # Falls normalisiert (selten), in Pixel skalieren
-            if gt_boxes.numel() > 0 and float(gt_boxes.max()) <= 1.5 and img_w > 0 and img_h > 0:
-                scale_xyxy = torch.tensor([img_w, img_h, img_w, img_h], dtype=gt_boxes.dtype, device=gt_boxes.device)
-                gt_boxes = gt_boxes * scale_xyxy
-
-            # XYXY -> XYWH
-            if gt_boxes.numel() > 0:
-                x1 = gt_boxes[:, 0]
-                y1 = gt_boxes[:, 1]
-                x2 = gt_boxes[:, 2]
-                y2 = gt_boxes[:, 3]
-                w = (x2 - x1).clamp(min=0)
-                h = (y2 - y1).clamp(min=0)
-                gt_boxes = torch.stack([x1, y1, w, h], dim=1)
-
-            gt_labels = tgt["labels"]
-            if isinstance(gt_labels, torch.Tensor):
-                gt_labels = gt_labels.cpu()
-
-            for b, l in zip(gt_boxes, gt_labels):
-                x, y, w, h = [float(v) for v in b.tolist()]
-                coco_cat = int(l)  # bereits 1..K
-                annotations.append(
-                    {
-                        "id": ann_id,
-                        "image_id": img_id,
-                        "category_id": coco_cat,
-                        "bbox": [x, y, w, h],
-                        "area": float(max(w, 0.0) * max(h, 0.0)),
-                        "iscrowd": 0,
-                    }
-                )
-                ann_id += 1
-
-    coco = COCO()
-    coco.dataset = {
-        "info": {"description": "in-memory GT (1..K)", "version": "1.0"},
-        "licenses": [],
-        "images": images,
-        "annotations": annotations,
-        "categories": categories,
-    }
-    coco.createIndex()
-    return coco
-
-
 @torch.no_grad()
 def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input_format="List"):
     model.eval()
@@ -1107,7 +915,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             logger.debug(f"images_device: {images_device}")
             outputs = model(images_device)
 
-        # Debug-Ausgaben zum Output-Typ
+        # Debug outputs for output type
         logger.debug(f"eval outputs type={type(outputs)}; len={len(outputs) if hasattr(outputs,'__len__') else 'n/a'}")
         if isinstance(outputs, (list, tuple)) and len(outputs) > 0 and isinstance(outputs[0], dict):
             logger.debug(f"eval outputs[0] keys={list(outputs[0].keys())}")
@@ -1115,15 +923,15 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             pass
         else:
             if isinstance(outputs, dict):
-                logger.warning("Model eval returned dict (vermutlich Loss-Dict). Erwartet: list[dict] mit 'boxes'. Es werden keine Detections erzeugt.")
+                logger.warning("Model eval returned dict (vermutlich Loss-Dict). expected: list[dict] mit 'boxes'. No detections will be generated.")
             elif torch.is_tensor(outputs):
-                logger.warning("Model eval returned Tensor. Erwartet: list[dict] pro image. Es werden keine Detections erzeugt.")
+                logger.warning("Model eval returned Tensor. expected: list[dict] pro image. No detections will be generated.")
             else:
-                logger.warning(f"Unerwarteter eval-Output: {type(outputs)}")
+                logger.warning(f"Unexpected eval output: {type(outputs)}")
 
-        # Wenn Output nicht der erwartete Typ ist, nächste Batch
+        # If output is not the expected type, skip to next batch
         if not isinstance(outputs, (list, tuple)) or (len(outputs) != len(images)):
-            logger.warning(f"Outputs nicht mit Batch kompatibel (len(outputs)={len(outputs) if hasattr(outputs,'__len__') else 'n/a'} vs len(images)={len(images)}). Batch wird übersprungen.")
+            logger.warning(f"Outputs not compatible with batch (len(outputs)={len(outputs) if hasattr(outputs,'__len__') else 'n/a'} vs len(images)={len(images)}). Batch will be skipped")
             continue
         for i, (target, output) in enumerate(zip(targets, outputs)):
             # image-Metadaten
@@ -1214,7 +1022,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     logger.debug(f"COCO GT: {coco_gt}\n\n")
 
     if len(results) == 0:
-        logger.warning("COCO eval: Keine Detections erzeugt - gebe Null-Metriken zurück und überspringe COCOeval.")
+        logger.warning("COCO eval: no detections generated - returning null metrics and skipping COCOeval.")
         return {
             "AP": 0.0,
             "AP50": 0.0,
@@ -1252,14 +1060,13 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     return metrics
 
 
-def model_input_format(images, targets, model_need, device, debug_mode=False):
+def model_input_format(cfg, images, targets, device, model_need):
     def to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
         # Eingabe immer xywh -> Ziel xyxy
         return coco_xywh_to_xyxy(boxes)
 
     if model_need == "Tensor":
         images = torch.stack([image.to(device) for image in images])
-
         processed_targets = []
         for tgt in targets:
             if isinstance(tgt, dict) and "boxes" in tgt and "labels" in tgt:
@@ -1297,7 +1104,63 @@ def model_input_format(images, targets, model_need, device, debug_mode=False):
             else:
                 processed_targets.append({"boxes": torch.empty((0, 4), device=device), "labels": torch.empty((0,), dtype=torch.long, device=device)})
 
+    else:
+        logger.warning(f"Unknown model need: {model_need}")
+        return
+
     return images, processed_targets
+
+
+# =============================================================================
+# DEBUG FUNCTIONS
+# =============================================================================
+def _check_img_range(img, img_id="unknown"):
+    """
+    Check the range of an image tensor and log warnings for black images.
+    """
+    try:
+        # Tensor-Verarbeitung
+        if isinstance(img, torch.Tensor):
+            if img.dim() == 3 and img.shape[0] in [1, 3]:
+                min_val = img.min().item()
+                max_val = img.max().item()
+            else:
+                logger.warning(f"Unexpected tensor shape: {img.shape}")
+                return
+
+        # PIL Image-Verarbeitung
+        elif hasattr(img, "getextrema"):  # PIL Image
+            extrema = img.getextrema()
+            if isinstance(extrema[0], tuple):  # RGB oder anderer Mehrkanal
+                min_val = min(ext[0] for ext in extrema)
+                max_val = max(ext[1] for ext in extrema)
+            else:  # Graustufen
+                min_val = extrema[0]
+                max_val = extrema[1]
+
+        # NumPy or other image types
+        else:
+            # Fallback to NumPy
+            if isinstance(img, np.ndarray):
+                np_img = img
+            else:
+                np_img = np.array(img)
+
+            min_val = np_img.min()
+            max_val = np_img.max()
+
+        # Determine the image type based on the range
+        if max_val < 1e-5:
+            logger.warning(f"Image {img_id}: BLACK (min={min_val:.6f}, max={max_val:.6f})")
+        elif max_val <= 1.5:  # Tolerance for small rounding errors
+            logger.debug(f"Image {img_id}: Range [0,1] (min={min_val:.6f}, max={max_val:.6f})")
+        elif max_val <= 255.5:  # Tolerance for small rounding errors
+            logger.debug(f"Image {img_id}: Range [0,255] (min={min_val:.6f}, max={max_val:.6f})")
+        else:
+            logger.warning(f"Image {img_id}: INVALID Range (min={min_val:.6f}, max={max_val:.6f})")
+
+    except Exception as e:
+        logger.error(f"Error checking image range for Image {img_id}: {e}")
 
 
 def debug_show(img, title="Debug Image", enable=False):
@@ -1380,59 +1243,6 @@ def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10),
     plt.pause(0.1)  # Small pause to ensure rendering
 
     return fig
-
-
-def _check_img_range(img, img_id="unknown"):
-    """
-    Überprüft den range eines Images, erkennt schwarze Images und gibt entsprechende Logmeldungen aus.
-
-    Args:
-        img: Das zu überprüfende Image (torch.Tensor, PIL.Image oder numpy.ndarray)
-        img_id: Identifikator für das Image (für Logging)
-    """
-    try:
-        # Tensor-Verarbeitung
-        if isinstance(img, torch.Tensor):
-            if img.dim() == 3 and img.shape[0] in [1, 3]:
-                min_val = img.min().item()
-                max_val = img.max().item()
-            else:
-                logger.warning(f"Unerwartete Tensor-Form: {img.shape}")
-                return
-
-        # PIL Image-Verarbeitung
-        elif hasattr(img, "getextrema"):  # PIL Image
-            extrema = img.getextrema()
-            if isinstance(extrema[0], tuple):  # RGB oder anderer Mehrkanal
-                min_val = min(ext[0] for ext in extrema)
-                max_val = max(ext[1] for ext in extrema)
-            else:  # Graustufen
-                min_val = extrema[0]
-                max_val = extrema[1]
-
-        # NumPy oder andere Imagetypen
-        else:
-            # Fallback zu NumPy
-            if isinstance(img, np.ndarray):
-                np_img = img
-            else:
-                np_img = np.array(img)
-
-            min_val = np_img.min()
-            max_val = np_img.max()
-
-        # Bestimme den Imagetype basierend auf dem Range
-        if max_val < 1e-5:
-            logger.warning(f"Image {img_id}: SCHWARZ (min={min_val:.6f}, max={max_val:.6f})")
-        elif max_val <= 1.5:  # Toleranz für kleine Rundungsfehler
-            logger.debug(f"Image {img_id}: Range [0,1] (min={min_val:.6f}, max={max_val:.6f})")
-        elif max_val <= 255.5:  # Toleranz für kleine Rundungsfehler
-            logger.debug(f"Image {img_id}: Range [0,255] (min={min_val:.6f}, max={max_val:.6f})")
-        else:
-            logger.warning(f"Image {img_id}: UNGÜLTIGER Range (min={min_val:.6f}, max={max_val:.6f})")
-
-    except Exception as e:
-        logger.error(f"Fehler bei der Überprüfung des Imageranges für Image {img_id}: {e}")
 
 
 if __name__ == "__main__":

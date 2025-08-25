@@ -137,6 +137,10 @@ def get_input_size() -> Tuple[int, int]:
     return 640, 640
 
 
+def get_model_need():
+    return "Tensor"
+
+
 if __name__ == "__main__":
     # Kurztest mit Dummy-Input (exakt 640x640)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

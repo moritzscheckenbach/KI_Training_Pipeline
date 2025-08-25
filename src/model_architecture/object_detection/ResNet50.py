@@ -291,6 +291,10 @@ def get_input_size():
     return (416, 416)
 
 
+def get_model_need():
+    return "Tensor"
+
+
 def build_model(num_classes=20, model_type="full"):
     """
     Factory function to build the ResNet50 model

@@ -246,10 +246,7 @@ if mode == "Transferlearning: selbstrainiertes Modell":
         freezing_enabled = st.selectbox("Freezing Enabled", [True, False])
 
         if freezing_enabled:
-            freezing_strategy = st.selectbox(
-                "Freezing Strategy",
-                ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"]
-            )
+            freezing_strategy = st.selectbox("Freezing Strategy", ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"])
 
             if freezing_strategy == "freeze_early_layers":
                 freeze_until_layer = st.number_input("Freeze Until Layer. ACHTUNG! Layers müssen children von Backbone sein.", min_value=1, max_value=50, value=6)
@@ -282,7 +279,14 @@ if dataset:
 num_classes = get_num_classes(datasets_root, task, dataset) if dataset else 1
 
 config = {
-    "training": {"epochs": int(epochs), "batch_size": int(batch_size), "learning_rate": float(learning_rate), "early_stopping_patience": int(early_stopping_patience), "random_seed": int(random_seed), "debug_mode":bool(modus_debug)},
+    "training": {
+        "epochs": int(epochs),
+        "batch_size": int(batch_size),
+        "learning_rate": float(learning_rate),
+        "early_stopping_patience": int(early_stopping_patience),
+        "random_seed": int(random_seed),
+        "debug_mode": bool(modus_debug),
+    },
     "scheduler": {"file": "scheduler", "type": scheduler_type, "patience": int(scheduler_patience), "factor": float(scheduler_factor), "min_lr": float(min_lr)},
     "optimizer": {
         "type": optimizer_type,

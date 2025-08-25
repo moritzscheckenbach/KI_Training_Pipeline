@@ -213,6 +213,9 @@ class SwinTinyObjectDetection(nn.Module):
         """Return expected input size (height, width)"""
         return (224, 224)  # Swin Tiny standard input size
 
+    def get_model_need():
+        return "Tensor"
+
     def unfreeze_backbone(self):
         """Unfreeze backbone for fine-tuning"""
         for param in self.backbone.parameters():

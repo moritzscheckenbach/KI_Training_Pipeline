@@ -381,6 +381,9 @@ class SwinTransformerObjectDetection(nn.Module):
         """Return expected input size as (height, width)"""
         return (self.img_size, self.img_size)
 
+    def get_model_need():
+        return "Tensor"
+
 
 def build_model(num_classes=20, img_size=224):
     """Factory function für Swin Transformer Object Detection"""

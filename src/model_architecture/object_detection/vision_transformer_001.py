@@ -34,6 +34,9 @@ class ViT(nn.Module):
         """Return expected input size as (height, width)"""
         return (self.image_size, self.image_size)
 
+    def get_model_need():
+        return "Tensor"
+
 
 def build_model(num_classes=10, config=None):
     """

@@ -32,6 +32,10 @@ def get_input_size():
     return 224, 224
 
 
+def get_model_need():
+    return "Tensor"
+
+
 # Test function
 if __name__ == "__main__":
     model = build_model(num_classes=20)
