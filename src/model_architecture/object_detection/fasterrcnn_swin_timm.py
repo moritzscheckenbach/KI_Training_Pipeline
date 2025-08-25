@@ -24,7 +24,7 @@ class TimmSwinBackbone(nn.Module):
 
     def __init__(
         self,
-        model_name: str = "swin_base_patch4_window7_224",  # timm-ID, die existiert
+        model_name: str = "swin_tiny_patch4_window7_224",  # timm-ID, die existiert
         pretrained: bool = True,
         out_indices: Tuple[int, ...] = (0, 1, 2, 3),
         fpn_out_channels: int = 256,
@@ -74,7 +74,7 @@ def get_model(
 ) -> FasterRCNN:
     # Swin-Backbone (fest 640x640)
     backbone = TimmSwinBackbone(
-        model_name="swin_base_patch4_window7_224",
+        model_name="swin_tiny_patch4_window7_224",
         pretrained=pretrained,
         out_indices=(0, 1, 2, 3),
         fpn_out_channels=256,
