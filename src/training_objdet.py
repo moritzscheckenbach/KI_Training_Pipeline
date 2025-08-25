@@ -210,38 +210,7 @@ def main(cfg: AIPipelineConfig):
         for i, (images, targets) in enumerate(train_dataloader):
             for n in range(len(images)):
                 img = images[n]
-                if _check_img_range(img):
-                    logger.warning(f"🔍 DEBUG: Original image at index {i} is completely black")
-
-    # # Beispiel: einmal Bild + Target ausgeben (train, val, test)
-    # import matplotlib.pyplot as plt
-    # import torchvision.transforms.functional as F
-
-    # def show_sample(dataloader, name=""):
-    #     images, targets = next(iter(dataloader))  # einen Batch holen
-    #     img = images[0]  # erstes Bild im Batch
-    #     target = targets[0]  # zugehöriges Target
-
-    #     # Tensor wieder zu einem darstellbaren Bild umwandeln
-    #     if isinstance(img, torch.Tensor):
-    #         img = F.to_pil_image(img)
-
-    #     print(f"\n{name} Sample:")
-    #     print(f"Image shape: {images[0].shape if isinstance(images[0], torch.Tensor) else type(images[0])}")
-    #     print(f"Target: {target}")
-
-    #     # Optional: anzeigen
-    #     plt.imshow(img)
-    #     plt.title(f"{name} Example")
-    #     plt.axis("off")
-    #     plt.show()
-
-    # # Nach deinen Dataloader-Definitionen:
-    # show_sample(train_dataloader, "Train")
-    # show_sample(val_dataloader, "Val")
-    # show_sample(test_dataloader, "Test")
-
-    # return
+                _check_img_range(img=img, img_id=f"dateloader_test img={n}")
 
     # =============================================================================
     # MODEL TO DEVICE
@@ -412,7 +381,7 @@ def main(cfg: AIPipelineConfig):
                         imgs_vis = [img.detach().cpu() for img in images[:4]]
                         preds = model([img.to(device) for img in images[:4]])
                     model.train()
-                grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds)
+                grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds, debug_mode=debug_mode)
                 writer.add_image("Train/GT_vs_Pred", grid, epoch)
 
         avg_train_loss = train_loss / len(train_dataloader)
@@ -686,46 +655,85 @@ def coco_xywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
     return xyxy
 
 
+def draw_boxes_on_img(img: torch.Tensor, boxes: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    # img: CHW uint8, boxes: xyxy
+    colors = ["red", "blue", "green", "yellow", "purple", "orange", "cyan", "magenta"]
+    box_colors = [colors[int(l) % len(colors)] for l in labels]
+    if boxes.numel() == 0:
+        return draw_bounding_boxes(img, torch.zeros((0, 4), dtype=torch.int64), labels=[], width=2, colors=box_colors)
+    return draw_bounding_boxes(img, boxes.round().to(torch.int64), labels=[str(int(l)) for l in labels], width=2, colors=box_colors)
+
+
 def tensor_to_uint8(img: torch.Tensor) -> torch.Tensor:
-    # erwartet CHW float [0,1] oder [0,255]
+    """Convert a tensor to uint8 format for visualization with improved range handling."""
     x = img.detach().cpu()
-    if x.max() <= 1.0:
-        x = x * 255.0
+
+    # Already in uint8 format
+    if x.dtype == torch.uint8:
+        return x
+
+    # Check tensor range
+    min_val, max_val = float(x.min().item()), float(x.max().item())
+
+    # Handle black or nearly black images
+    if max_val <= min_val + 1e-5:
+        return torch.zeros_like(x, dtype=torch.uint8)
+
+    # Scale to [0,255] based on actual content range rather than assumptions
+    if max_val <= 1.5:  # Likely [0,1] range
+        x = (x * 255.0).clamp(0, 255)
+    else:  # Likely already in high range
+        x = x.clamp(0, 255)
+
     return x.to(torch.uint8)
 
 
-def draw_boxes_on_img(img: torch.Tensor, boxes: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
-    # img: CHW uint8, boxes: xyxy
-    if boxes.numel() == 0:
-        return draw_bounding_boxes(img, torch.zeros((0, 4), dtype=torch.int64), labels=[], width=2)
-    return draw_bounding_boxes(img, boxes.round().to(torch.int64), labels=[str(int(l)) for l in labels], width=2)
-
-
-def make_gt_vs_pred_grid(imgs_vis: torch.Tensor, targets_list, preds_list):
-    """
-    imgs_vis: Tensor [B, C, H, W] on CPU
-    targets_list: list of dicts with boxes (xyxy on device) + labels
-    preds_list: list of dicts with boxes + labels (xyxy)
-    """
+def make_gt_vs_pred_grid(imgs_vis: List[torch.Tensor], targets_list, preds_list, debug_mode=False):
+    """Create a grid of ground truth vs prediction images with better error handling."""
     panels = []
+
     for b_idx in range(len(imgs_vis)):
-        img_u8 = tensor_to_uint8(imgs_vis[b_idx])
-        # GT
+        img = imgs_vis[b_idx]
+
+        # Skip invalid images
+        if img is None or img.numel() == 0 or torch.isnan(img).any():
+            logger.warning(f"Skipping invalid image at index {b_idx}")
+            continue
+
+        # Convert to uint8 for visualization
+        img_u8 = tensor_to_uint8(img)
+
+        if debug_mode:
+            _check_img_range(img=img_u8, img_id=b_idx)
+
+        # Process GT
         gt_t = targets_list[b_idx]
-        # removed conversion: boxes are already in xyxy
         gt_boxes_xyxy = gt_t["boxes"].detach().cpu()
         gt_labels = gt_t["labels"].detach().cpu()
         gt_img = draw_boxes_on_img(img_u8, gt_boxes_xyxy, gt_labels)
 
-        # Preds
+        if debug_mode:
+            _check_img_range(img=gt_img, img_id=b_idx)
+
+        # Process predictions
         p = preds_list[b_idx]
         p_boxes = p.get("boxes", torch.empty((0, 4))).detach().cpu()
         p_labels = p.get("labels", torch.empty((0,), dtype=torch.long)).detach().cpu()
         pred_img = draw_boxes_on_img(img_u8, p_boxes, p_labels)
 
-        panel = torch.cat([gt_img, pred_img], dim=2)  # nebeneinander
+        if debug_mode:
+            _check_img_range(img=pred_img, img_id=b_idx)
+
+        # Create side-by-side panel
+        panel = torch.cat([gt_img, pred_img], dim=2)
         panels.append(panel)
 
+    # Handle case where no valid panels could be created
+    if not panels:
+        logger.warning("No valid panels could be created for visualization")
+        return torch.zeros((3, 64, 128), dtype=torch.uint8)  # Return small blank image
+
+    # Create the final grid
     grid = torchvision.utils.make_grid(panels, nrow=1)
     return grid
 
@@ -857,7 +865,7 @@ def metrics_from_cm(cm_ext: np.ndarray):
 
 
 class COCOWrapper:
-    """Wrappt Bild+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
+    """Wrappt image+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
     ohne Zusatz-Keys (z. B. image_id) zu verlieren.
     """
 
@@ -918,7 +926,7 @@ class COCOWrapper:
             target = tgt
 
         else:
-            raise TypeError(f"COCOWrapper: unerwarteter target-Typ {type(target)}")
+            raise TypeError(f"COCOWrapper: unerwarteter target-type {type(target)}")
 
         # --- Transforms anwenden ---
         img, target = self.base_tf(img, target)
@@ -1111,7 +1119,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             if isinstance(outputs, dict):
                 logger.warning("Model eval returned dict (vermutlich Loss-Dict). Erwartet: list[dict] mit 'boxes'. Es werden keine Detections erzeugt.")
             elif torch.is_tensor(outputs):
-                logger.warning("Model eval returned Tensor. Erwartet: list[dict] pro Bild. Es werden keine Detections erzeugt.")
+                logger.warning("Model eval returned Tensor. Erwartet: list[dict] pro image. Es werden keine Detections erzeugt.")
             else:
                 logger.warning(f"Unerwarteter eval-Output: {type(outputs)}")
 
@@ -1120,7 +1128,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             logger.warning(f"Outputs nicht mit Batch kompatibel (len(outputs)={len(outputs) if hasattr(outputs,'__len__') else 'n/a'} vs len(images)={len(images)}). Batch wird übersprungen.")
             continue
         for i, (target, output) in enumerate(zip(targets, outputs)):
-            # Bild-Metadaten
+            # image-Metadaten
             _, H, W = images[i].shape
             image_id = int(target["image_id"].item() if torch.is_tensor(target["image_id"]) else target["image_id"])
 
@@ -1376,25 +1384,14 @@ def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10),
     return fig
 
 
-def _check_img_range(img, img_id="unknown", log_level="warning"):
+def _check_img_range(img, img_id="unknown"):
     """
-    Überprüft den Wertebereich eines Bildes, erkennt schwarze Bilder und gibt entsprechende Logmeldungen aus.
+    Überprüft den range eines Images, erkennt schwarze Images und gibt entsprechende Logmeldungen aus.
 
     Args:
-        img: Das zu überprüfende Bild (torch.Tensor, PIL.Image oder numpy.ndarray)
-        img_id: Identifikator für das Bild (für Logging)
-        log_level: Log-Level für normale Meldungen ('info', 'debug', 'warning')
-
-    Returns:
-        dict: {
-            'range_type': str, # 'black', '[0,1]', '[0,255]', 'invalid', 'error'
-            'is_black': bool,  # True wenn Bild komplett schwarz ist
-            'min_val': float,  # Minimum-Wert des Bildes
-            'max_val': float   # Maximum-Wert des Bildes
-        }
+        img: Das zu überprüfende Image (torch.Tensor, PIL.Image oder numpy.ndarray)
+        img_id: Identifikator für das Image (für Logging)
     """
-    result = {"range_type": "error", "is_black": False, "min_val": None, "max_val": None}
-
     try:
         # Tensor-Verarbeitung
         if isinstance(img, torch.Tensor):
@@ -1403,8 +1400,7 @@ def _check_img_range(img, img_id="unknown", log_level="warning"):
                 max_val = img.max().item()
             else:
                 logger.warning(f"Unerwartete Tensor-Form: {img.shape}")
-                result["range_type"] = "invalid"
-                return result
+                return
 
         # PIL Image-Verarbeitung
         elif hasattr(img, "getextrema"):  # PIL Image
@@ -1416,7 +1412,7 @@ def _check_img_range(img, img_id="unknown", log_level="warning"):
                 min_val = extrema[0]
                 max_val = extrema[1]
 
-        # NumPy oder andere Bildtypen
+        # NumPy oder andere Imagetypen
         else:
             # Fallback zu NumPy
             if isinstance(img, np.ndarray):
@@ -1427,32 +1423,18 @@ def _check_img_range(img, img_id="unknown", log_level="warning"):
             min_val = np_img.min()
             max_val = np_img.max()
 
-        # Aktualisiere Rückgabewerte
-        result["min_val"] = min_val
-        result["max_val"] = max_val
-
-        # Bestimme den Bildtyp basierend auf dem Wertebereich
+        # Bestimme den Imagetype basierend auf dem Range
         if max_val < 1e-5:
-            result["range_type"] = "black"
-            result["is_black"] = True
-            logger.warning(f"Bild {img_id}: SCHWARZ (min={min_val:.6f}, max={max_val:.6f})")
+            logger.warning(f"Image {img_id}: SCHWARZ (min={min_val:.6f}, max={max_val:.6f})")
         elif max_val <= 1.5:  # Toleranz für kleine Rundungsfehler
-            result["range_type"] = "[0,1]"
-            log_func = getattr(logger, log_level.lower(), logger.info)
-            log_func(f"Bild {img_id}: Wertebereich [0,1] (min={min_val:.6f}, max={max_val:.6f})")
+            logger.debug(f"Image {img_id}: Range [0,1] (min={min_val:.6f}, max={max_val:.6f})")
         elif max_val <= 255.5:  # Toleranz für kleine Rundungsfehler
-            result["range_type"] = "[0,255]"
-            log_func = getattr(logger, log_level.lower(), logger.info)
-            log_func(f"Bild {img_id}: Wertebereich [0,255] (min={min_val:.6f}, max={max_val:.6f})")
+            logger.debug(f"Image {img_id}: Range [0,255] (min={min_val:.6f}, max={max_val:.6f})")
         else:
-            result["range_type"] = "invalid"
-            logger.warning(f"Bild {img_id}: UNGÜLTIGER Wertebereich (min={min_val:.6f}, max={max_val:.6f})")
-
-        return result
+            logger.warning(f"Image {img_id}: UNGÜLTIGER Range (min={min_val:.6f}, max={max_val:.6f})")
 
     except Exception as e:
-        logger.error(f"Fehler bei der Überprüfung des Bildwertebereichs für Bild {img_id}: {e}")
-        return result
+        logger.error(f"Fehler bei der Überprüfung des Imageranges für Image {img_id}: {e}")
 
 
 class CocoDetWrapped(Dataset):
