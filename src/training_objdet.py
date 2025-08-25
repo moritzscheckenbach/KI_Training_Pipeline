@@ -1,33 +1,24 @@
-import argparse
 import gc
 import importlib
 import os
 import shutil
 from datetime import datetime
 from math import sqrt
-from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
-import torch.nn as nn
 import torchvision
-import torchvision.transforms as transforms
 import yaml
 from hydra.utils import to_absolute_path
 from loguru import logger
-from omegaconf import DictConfig, OmegaConf
+from omegaconf import OmegaConf
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.datasets import CocoDetection
-from torchvision.models.detection import (
-    FasterRCNN_ResNet50_FPN_Weights,
-    fasterrcnn_resnet50_fpn,
-)
 from torchvision.ops import box_convert
 from torchvision.transforms import v2 as T
 from torchvision.tv_tensors import BoundingBoxes
@@ -35,8 +26,9 @@ from torchvision.utils import draw_bounding_boxes
 from tqdm import tqdm
 
 from conf.config import AIPipelineConfig
-from utils.PASCAL_Dataset_Loader import PascalDataset
-from utils.YOLO_Dataset_Loader import YoloDataset
+from utils.COCO_Loader import CocoDataset
+from utils.PASCAL_Loader import PascalDataset
+from utils.YOLO_Loader import YoloDataset
 
 
 @hydra.main(version_base=None, config_path="conf", config_name="config")
@@ -165,21 +157,21 @@ def main(cfg: AIPipelineConfig):
 
     # TYPE COCO Dataset
     if dataset_type == "Type_COCO":
-        train_dataset = CocoDetWrapped(
+        train_dataset = CocoDataset(
             root=f"{dataset_root}train/",
             annFile=f"{dataset_root}train/_annotations.coco.json",
             transforms=v2_train_tf,
             img_id_start=1000000,
             debug_mode=debug_mode,
         )
-        val_dataset = CocoDetWrapped(
+        val_dataset = CocoDataset(
             root=f"{dataset_root}valid/",
             annFile=f"{dataset_root}valid/_annotations.coco.json",
             transforms=v2_eval_tf,
             img_id_start=2000000,
             debug_mode=debug_mode,
         )
-        test_dataset = CocoDetWrapped(
+        test_dataset = CocoDataset(
             root=f"{dataset_root}test/",
             annFile=f"{dataset_root}test/_annotations.coco.json",
             transforms=v2_eval_tf,
@@ -1435,59 +1427,6 @@ def _check_img_range(img, img_id="unknown"):
 
     except Exception as e:
         logger.error(f"Fehler bei der Überprüfung des Imageranges für Image {img_id}: {e}")
-
-
-class CocoDetWrapped(Dataset):
-    def __init__(self, root, annFile, transforms=None, img_id_start=0, debug_mode=False):
-        self.ds = CocoDetection(root=root, annFile=annFile)
-        self.transforms = transforms
-        self.img_id_start = img_id_start
-        self.debug_mode = debug_mode
-        self.debug_samples = set(range(min(5, len(self.ds)))) if self.debug_mode else set()
-
-    def __len__(self):
-        return len(self.ds)
-
-    def __getitem__(self, idx):
-        img, anns = self.ds[idx]  # anns: List[dict]
-
-        # Einheitlich RGB sicherstellen (deckt RGBA/LA/CMYK/16-bit Fälle ab)
-        if hasattr(img, "mode") and img.mode != "RGB":
-            img = img.convert("RGB")
-
-        boxes, labels, areas, iscrowd = [], [], [], []
-        for a in anns:
-            x, y, w, h = a["bbox"]  # COCO: xywh
-            boxes.append([x, y, w, h])
-            labels.append(a["category_id"])
-            areas.append(a.get("area", w * h))
-            iscrowd.append(a.get("iscrowd", 0))
-
-        if len(boxes) == 0:
-            boxes = torch.zeros((0, 4), dtype=torch.float32)
-            labels = torch.zeros((0,), dtype=torch.int64)
-            areas = torch.zeros((0,), dtype=torch.float32)
-            iscrowd = torch.zeros((0,), dtype=torch.int64)
-        else:
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-            labels = torch.as_tensor(labels, dtype=torch.int64)
-            areas = torch.as_tensor(areas, dtype=torch.float32)
-            iscrowd = torch.as_tensor(iscrowd, dtype=torch.int64)
-
-        image_id = self.img_id_start + torch.tensor(self.ds.ids[idx], dtype=torch.int64)
-
-        target = {
-            "boxes": boxes,
-            "labels": labels,
-            "image_id": image_id,
-            "area": areas,
-            "iscrowd": iscrowd,
-        }
-
-        if self.transforms is not None:
-            img, target = self.transforms(img, target)
-
-        return img, target
 
 
 if __name__ == "__main__":
