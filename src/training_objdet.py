@@ -73,14 +73,23 @@ def main(cfg: AIPipelineConfig):
     # =============================================================================
     # LOGGER SETUP
     # =============================================================================
+    debug_mode = cfg.training.debug_mode
+    if debug_mode:
+        logger_level = "DEBUG"
+    else:
+        logger_level = "INFO"
+
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="DEBUG", colorize=True)
+    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level=logger_level, colorize=True)
 
     log_file_path = f"{experiment_dir}/training.log"
-    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="DEBUG", rotation="100 MB", retention="10 days")
+    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level=logger_level, rotation="100 MB", retention="10 days")
 
     src = to_absolute_path("conf/config.yaml")
     shutil.copy(src, os.path.join(experiment_dir, "configs", "config.yaml"))
+
+    if debug_mode:
+        logger.info("🔍 Debug mode is ENABLED - will check for black images and provide detailed logs")
 
     if transfer_learning_enabled:
         logger.info("🔄 Using Transfer Learning Mode")
@@ -161,18 +170,21 @@ def main(cfg: AIPipelineConfig):
             annFile=f"{dataset_root}train/_annotations.coco.json",
             transforms=v2_train_tf,
             img_id_start=1000000,
+            debug_mode=debug_mode,
         )
         val_dataset = CocoDetWrapped(
             root=f"{dataset_root}valid/",
             annFile=f"{dataset_root}valid/_annotations.coco.json",
             transforms=v2_eval_tf,
             img_id_start=2000000,
+            debug_mode=debug_mode,
         )
         test_dataset = CocoDetWrapped(
             root=f"{dataset_root}test/",
             annFile=f"{dataset_root}test/_annotations.coco.json",
             transforms=v2_eval_tf,
             img_id_start=3000000,
+            debug_mode=debug_mode,
         )
 
     # TYPE YOLO Dataset
@@ -333,7 +345,15 @@ def main(cfg: AIPipelineConfig):
 
             model_need = "Tensor"
 
-            images, processed_targets = model_input_format(images, targets, model_need, device)
+            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
+
+            # Additional black image check before model
+            if debug_mode and isinstance(images, torch.Tensor):
+                for b_idx in range(images.shape[0]):
+                    if _img_all_black(images[b_idx]):
+                        img_id = processed_targets[b_idx].get("image_id", f"batch{i}_idx{b_idx}") if isinstance(processed_targets[b_idx], dict) else f"batch{i}_idx{b_idx}"
+                        logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black right before being passed to model")
+
             logger.debug(f"Type Images: {type(images)}")
             logger.debug(f"Images: {images}")
             logger.debug(f"Type Processed Targets: {type(processed_targets)}")
@@ -411,7 +431,7 @@ def main(cfg: AIPipelineConfig):
             for images, targets in val_dataloader:
                 if images is None or targets is None:
                     continue
-                images, processed_targets = model_input_format(images, targets, model_need, device)
+                images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
                 loss_dict = model(images, processed_targets)
                 losses = sum(loss for loss in loss_dict.values())
                 val_loss += losses.item()
@@ -543,7 +563,7 @@ def main(cfg: AIPipelineConfig):
         for images, targets in val_dataloader:
             if images is None or targets is None:
                 continue
-            images, processed_targets = model_input_format(images, targets, model_need, device)
+            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
 
             loss_dict = model(images, processed_targets)
             losses = sum(loss for loss in loss_dict.values())
@@ -564,7 +584,7 @@ def main(cfg: AIPipelineConfig):
         for images, targets in val_dataloader:
             if images is None or targets is None:
                 continue
-            images, processed_targets = model_input_format(images, targets, model_need, device)
+            images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
 
             detections = model(images)  # eval -> list of dicts
 
@@ -841,9 +861,10 @@ class COCOWrapper:
     ohne Zusatz-Keys (z. B. image_id) zu verlieren.
     """
 
-    def __init__(self, base_tf, inputsize_x, inputsize_y):
+    def __init__(self, base_tf, inputsize_x, inputsize_y, debug_enabled=False):
         # HINWEIS: Resize übernimmt hier unverändert (inputsize_x, inputsize_y),
         # wie in deinem Originalcode.
+        self.debug_enabled = debug_enabled
         self.base_tf = T.Compose(
             [
                 base_tf,
@@ -852,6 +873,11 @@ class COCOWrapper:
         )
 
     def __call__(self, img, target):
+        # Check for black image at the beginning if debug mode enabled
+        if self.debug_enabled and _img_all_black(img):
+            img_id = target.get("image_id", "unknown") if isinstance(target, dict) else "unknown"
+            logger.warning(f"🔍 DEBUG: Detected completely black image with ID {img_id} at input")
+
         # Canvas-Size bestimmen (H, W)
         if hasattr(img, "size"):  # PIL: (W, H)
             w, h = img.size
@@ -901,6 +927,11 @@ class COCOWrapper:
 
         # --- Transforms anwenden ---
         img, target = self.base_tf(img, target)
+
+        # Check for black image after transforms if debug mode enabled
+        if self.debug_enabled and _img_all_black(img):
+            img_id = target.get("image_id", "unknown") if isinstance(target, dict) else "unknown"
+            logger.warning(f"🔍 DEBUG: Image with ID {img_id} became completely black after transforms")
 
         # --- BoundingBoxes zurück in normalen Tensor (XYWH) ---
         if isinstance(target, dict):
@@ -1225,13 +1256,27 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     return metrics
 
 
-def model_input_format(images, targets, model_need, device):
+def model_input_format(images, targets, model_need, device, debug_mode=False):
     def to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
         # Eingabe immer xywh -> Ziel xyxy
         return coco_xywh_to_xyxy(boxes)
 
+    # Check for black images in debug mode
+    if debug_mode:
+        for i, img in enumerate(images):
+            if _img_all_black(img):
+                img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
+                logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black before model input formatting")
+
     if model_need == "Tensor":
         images = torch.stack([image.to(device) for image in images])
+
+        # Check after stacking
+        if debug_mode:
+            for i in range(images.shape[0]):
+                if _img_all_black(images[i]):
+                    img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
+                    logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black after stacking to tensor")
 
         processed_targets = []
         for tgt in targets:
@@ -1252,6 +1297,13 @@ def model_input_format(images, targets, model_need, device):
 
     elif model_need == "List":
         images = [img.to(device) for img in images]
+
+        # Check after device transfer
+        if debug_mode:
+            for i, img in enumerate(images):
+                if _img_all_black(img):
+                    img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
+                    logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black after device transfer (List format)")
 
         processed_targets = []
         for tgt in targets:
@@ -1289,12 +1341,101 @@ def debug_show(img, title="Debug Image", enable=False):
     plt.show()
 
 
+def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10), enable=False):
+    """
+    Display multiple images in a grid layout in a single window.
+
+    Args:
+        images: List of images (PIL Images or torch Tensors)
+        titles: Optional list of titles for each image
+        rows: Number of rows in grid (calculated automatically if None)
+        cols: Number of columns in grid (calculated automatically if None)
+        figsize: Figure size (width, height) in inches
+        enable: Whether to actually display the images (for easy disabling)
+    """
+    if not enable:
+        return
+
+    n_images = len(images)
+    if n_images == 0:
+        return
+
+    if rows is None and cols is None:
+        cols = min(5, n_images)
+        rows = (n_images + cols - 1) // cols
+    elif rows is None:
+        rows = (n_images + cols - 1) // cols
+    elif cols is None:
+        cols = (n_images + rows - 1) // rows
+
+    fig, axs = plt.subplots(rows, cols, figsize=figsize)
+    if rows * cols == 1:
+        axs = np.array([axs])
+    axs = axs.flatten()
+
+    for i, img in enumerate(images):
+        if i >= len(axs):
+            break
+
+        if isinstance(img, torch.Tensor):
+            if img.dim() == 3 and img.shape[0] in [1, 3]:
+                # Convert CHW to HWC and ensure it's on CPU
+                img_np = img.permute(1, 2, 0).cpu().numpy()
+
+                # Handle normalization - rescale if needed
+                if img_np.max() <= 1.0:
+                    img_np = img_np
+
+                axs[i].imshow(img_np)
+            else:
+                axs[i].imshow(img.cpu().numpy())
+        else:
+            axs[i].imshow(np.array(img))
+
+        axs[i].set_axis_off()
+        if titles and i < len(titles):
+            axs[i].set_title(titles[i])
+
+    # Hide empty subplots
+    for j in range(i + 1, len(axs)):
+        axs[j].set_visible(False)
+
+    plt.tight_layout()
+    plt.show(block=False)  # Use block=False to allow code to continue
+    plt.pause(0.1)  # Small pause to ensure rendering
+
+    return fig
+
+
+def _img_all_black(img):
+    """Check if an image is entirely black (or very close to it)"""
+    if isinstance(img, torch.Tensor):
+        if img.dim() == 3 and img.shape[0] in [1, 3]:
+            return img.max().item() < 1e-5
+    elif hasattr(img, "getextrema"):
+        extrema = img.getextrema()
+        if isinstance(extrema[0], tuple):
+            return all(ext[1] < 1 for ext in extrema)
+        else:
+            return extrema[1] < 1
+
+    try:
+        if isinstance(img, np.ndarray):
+            return img.max() < 1e-5
+        else:
+            np_img = np.array(img)
+            return np_img.max() < 1e-5
+    except:
+        logger.warning("Could not check if image is black - unsupported type")
+        return False
+
+
 class CocoDetWrapped(Dataset):
-    def __init__(self, root, annFile, transforms=None, img_id_start=0):
+    def __init__(self, root, annFile, transforms=None, img_id_start=0, debug_mode=False):
         self.ds = CocoDetection(root=root, annFile=annFile)
         self.transforms = transforms
         self.img_id_start = img_id_start
-        self.debug_mode = False
+        self.debug_mode = debug_mode
         self.debug_samples = set(range(min(5, len(self.ds)))) if self.debug_mode else set()
 
     def __len__(self):
@@ -1302,9 +1443,14 @@ class CocoDetWrapped(Dataset):
 
     def __getitem__(self, idx):
         img, anns = self.ds[idx]  # anns: List[dict]
-        # Debug: Originalbild anzeigen
-        should_debug = self.debug_mode and idx in self.debug_samples
-        debug_show(img, f"Originalbild idx={idx}", enable=should_debug)
+
+        # Einheitlich RGB sicherstellen (deckt RGBA/LA/CMYK/16-bit Fälle ab)
+        if hasattr(img, "mode") and img.mode != "RGB":
+            img = img.convert("RGB")
+
+        # Check for black images in debug mode
+        if self.debug_mode and _img_all_black(img):
+            logger.warning(f"🔍 DEBUG: Original image at index {idx} is completely black")
 
         boxes, labels, areas, iscrowd = [], [], [], []
         for a in anns:
@@ -1335,10 +1481,22 @@ class CocoDetWrapped(Dataset):
             "iscrowd": iscrowd,
         }
 
-        if self.transforms is not None:
-            img, target = self.transforms(img, target)
-            # Debug: Bild nach Transforms anzeigen
-            debug_show(img, f"Nach Transforms idx={idx}", enable=should_debug)
+        # For debugging - collect original and transformed images
+        if self.debug_mode:
+            orig_is_black = _img_all_black(img)
+
+            # Apply transforms
+            if self.transforms is not None:
+                img, target = self.transforms(img, target)
+
+                # Check if image became black after transformation
+                if not orig_is_black and _img_all_black(img):
+                    logger.warning(f"🔍 DEBUG: Image at index {idx} with ID {image_id.item()} became black after transforms")
+        else:
+            # Regular non-debug processing
+            if self.transforms is not None:
+                img, target = self.transforms(img, target)
+
         return img, target
 
 
