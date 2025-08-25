@@ -154,6 +154,8 @@ else:
 st.subheader("4. Trainingsmodus")
 mode_options = ["Training aus Architektur", "Transferlearning: selbstrainiertes Modell"]
 mode = st.radio("Modus wählen", mode_options, horizontal=True)
+debug_option = st.selectbox("Debug Modus", ["Nein", "Ja"], index=0)
+modus_debug = True if debug_option == "Ja" else False
 
 # =========================
 # Architecture/Model Selection based on Mode
@@ -280,7 +282,7 @@ if dataset:
 num_classes = get_num_classes(datasets_root, task, dataset) if dataset else 1
 
 config = {
-    "training": {"epochs": int(epochs), "batch_size": int(batch_size), "learning_rate": float(learning_rate), "early_stopping_patience": int(early_stopping_patience), "random_seed": int(random_seed)},
+    "training": {"epochs": int(epochs), "batch_size": int(batch_size), "learning_rate": float(learning_rate), "early_stopping_patience": int(early_stopping_patience), "random_seed": int(random_seed), "debug_mode":bool(modus_debug)},
     "scheduler": {"file": "scheduler", "type": scheduler_type, "patience": int(scheduler_patience), "factor": float(scheduler_factor), "min_lr": float(min_lr)},
     "optimizer": {
         "type": optimizer_type,
