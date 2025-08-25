@@ -206,6 +206,13 @@ def main(cfg: AIPipelineConfig):
     val_dataloader = DataLoader(val_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
     test_dataloader = DataLoader(test_dataset, batch_size=cfg.training.batch_size, shuffle=False, num_workers=4, collate_fn=collate_fn)
 
+    if debug_mode:
+        for i, (images, targets) in enumerate(train_dataloader):
+            for n in range(len(images)):
+                img = images[n]
+                if _check_img_range(img):
+                    logger.warning(f"🔍 DEBUG: Original image at index {i} is completely black")
+
     # # Beispiel: einmal Bild + Target ausgeben (train, val, test)
     # import matplotlib.pyplot as plt
     # import torchvision.transforms.functional as F
@@ -346,13 +353,6 @@ def main(cfg: AIPipelineConfig):
             model_need = "Tensor"
 
             images, processed_targets = model_input_format(images, targets, model_need, device, debug_mode=debug_mode)
-
-            # Additional black image check before model
-            if debug_mode and isinstance(images, torch.Tensor):
-                for b_idx in range(images.shape[0]):
-                    if _img_all_black(images[b_idx]):
-                        img_id = processed_targets[b_idx].get("image_id", f"batch{i}_idx{b_idx}") if isinstance(processed_targets[b_idx], dict) else f"batch{i}_idx{b_idx}"
-                        logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black right before being passed to model")
 
             logger.debug(f"Type Images: {type(images)}")
             logger.debug(f"Images: {images}")
@@ -873,11 +873,6 @@ class COCOWrapper:
         )
 
     def __call__(self, img, target):
-        # Check for black image at the beginning if debug mode enabled
-        if self.debug_enabled and _img_all_black(img):
-            img_id = target.get("image_id", "unknown") if isinstance(target, dict) else "unknown"
-            logger.warning(f"🔍 DEBUG: Detected completely black image with ID {img_id} at input")
-
         # Canvas-Size bestimmen (H, W)
         if hasattr(img, "size"):  # PIL: (W, H)
             w, h = img.size
@@ -927,11 +922,6 @@ class COCOWrapper:
 
         # --- Transforms anwenden ---
         img, target = self.base_tf(img, target)
-
-        # Check for black image after transforms if debug mode enabled
-        if self.debug_enabled and _img_all_black(img):
-            img_id = target.get("image_id", "unknown") if isinstance(target, dict) else "unknown"
-            logger.warning(f"🔍 DEBUG: Image with ID {img_id} became completely black after transforms")
 
         # --- BoundingBoxes zurück in normalen Tensor (XYWH) ---
         if isinstance(target, dict):
@@ -1261,22 +1251,8 @@ def model_input_format(images, targets, model_need, device, debug_mode=False):
         # Eingabe immer xywh -> Ziel xyxy
         return coco_xywh_to_xyxy(boxes)
 
-    # Check for black images in debug mode
-    if debug_mode:
-        for i, img in enumerate(images):
-            if _img_all_black(img):
-                img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
-                logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black before model input formatting")
-
     if model_need == "Tensor":
         images = torch.stack([image.to(device) for image in images])
-
-        # Check after stacking
-        if debug_mode:
-            for i in range(images.shape[0]):
-                if _img_all_black(images[i]):
-                    img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
-                    logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black after stacking to tensor")
 
         processed_targets = []
         for tgt in targets:
@@ -1297,13 +1273,6 @@ def model_input_format(images, targets, model_need, device, debug_mode=False):
 
     elif model_need == "List":
         images = [img.to(device) for img in images]
-
-        # Check after device transfer
-        if debug_mode:
-            for i, img in enumerate(images):
-                if _img_all_black(img):
-                    img_id = targets[i].get("image_id", f"batch_idx_{i}") if isinstance(targets[i], dict) else f"batch_idx_{i}"
-                    logger.warning(f"🔍 DEBUG: Image with ID {img_id} is black after device transfer (List format)")
 
         processed_targets = []
         for tgt in targets:
@@ -1407,27 +1376,83 @@ def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10),
     return fig
 
 
-def _img_all_black(img):
-    """Check if an image is entirely black (or very close to it)"""
-    if isinstance(img, torch.Tensor):
-        if img.dim() == 3 and img.shape[0] in [1, 3]:
-            return img.max().item() < 1e-5
-    elif hasattr(img, "getextrema"):
-        extrema = img.getextrema()
-        if isinstance(extrema[0], tuple):
-            return all(ext[1] < 1 for ext in extrema)
-        else:
-            return extrema[1] < 1
+def _check_img_range(img, img_id="unknown", log_level="warning"):
+    """
+    Überprüft den Wertebereich eines Bildes, erkennt schwarze Bilder und gibt entsprechende Logmeldungen aus.
+
+    Args:
+        img: Das zu überprüfende Bild (torch.Tensor, PIL.Image oder numpy.ndarray)
+        img_id: Identifikator für das Bild (für Logging)
+        log_level: Log-Level für normale Meldungen ('info', 'debug', 'warning')
+
+    Returns:
+        dict: {
+            'range_type': str, # 'black', '[0,1]', '[0,255]', 'invalid', 'error'
+            'is_black': bool,  # True wenn Bild komplett schwarz ist
+            'min_val': float,  # Minimum-Wert des Bildes
+            'max_val': float   # Maximum-Wert des Bildes
+        }
+    """
+    result = {"range_type": "error", "is_black": False, "min_val": None, "max_val": None}
 
     try:
-        if isinstance(img, np.ndarray):
-            return img.max() < 1e-5
+        # Tensor-Verarbeitung
+        if isinstance(img, torch.Tensor):
+            if img.dim() == 3 and img.shape[0] in [1, 3]:
+                min_val = img.min().item()
+                max_val = img.max().item()
+            else:
+                logger.warning(f"Unerwartete Tensor-Form: {img.shape}")
+                result["range_type"] = "invalid"
+                return result
+
+        # PIL Image-Verarbeitung
+        elif hasattr(img, "getextrema"):  # PIL Image
+            extrema = img.getextrema()
+            if isinstance(extrema[0], tuple):  # RGB oder anderer Mehrkanal
+                min_val = min(ext[0] for ext in extrema)
+                max_val = max(ext[1] for ext in extrema)
+            else:  # Graustufen
+                min_val = extrema[0]
+                max_val = extrema[1]
+
+        # NumPy oder andere Bildtypen
         else:
-            np_img = np.array(img)
-            return np_img.max() < 1e-5
-    except:
-        logger.warning("Could not check if image is black - unsupported type")
-        return False
+            # Fallback zu NumPy
+            if isinstance(img, np.ndarray):
+                np_img = img
+            else:
+                np_img = np.array(img)
+
+            min_val = np_img.min()
+            max_val = np_img.max()
+
+        # Aktualisiere Rückgabewerte
+        result["min_val"] = min_val
+        result["max_val"] = max_val
+
+        # Bestimme den Bildtyp basierend auf dem Wertebereich
+        if max_val < 1e-5:
+            result["range_type"] = "black"
+            result["is_black"] = True
+            logger.warning(f"Bild {img_id}: SCHWARZ (min={min_val:.6f}, max={max_val:.6f})")
+        elif max_val <= 1.5:  # Toleranz für kleine Rundungsfehler
+            result["range_type"] = "[0,1]"
+            log_func = getattr(logger, log_level.lower(), logger.info)
+            log_func(f"Bild {img_id}: Wertebereich [0,1] (min={min_val:.6f}, max={max_val:.6f})")
+        elif max_val <= 255.5:  # Toleranz für kleine Rundungsfehler
+            result["range_type"] = "[0,255]"
+            log_func = getattr(logger, log_level.lower(), logger.info)
+            log_func(f"Bild {img_id}: Wertebereich [0,255] (min={min_val:.6f}, max={max_val:.6f})")
+        else:
+            result["range_type"] = "invalid"
+            logger.warning(f"Bild {img_id}: UNGÜLTIGER Wertebereich (min={min_val:.6f}, max={max_val:.6f})")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Fehler bei der Überprüfung des Bildwertebereichs für Bild {img_id}: {e}")
+        return result
 
 
 class CocoDetWrapped(Dataset):
@@ -1447,10 +1472,6 @@ class CocoDetWrapped(Dataset):
         # Einheitlich RGB sicherstellen (deckt RGBA/LA/CMYK/16-bit Fälle ab)
         if hasattr(img, "mode") and img.mode != "RGB":
             img = img.convert("RGB")
-
-        # Check for black images in debug mode
-        if self.debug_mode and _img_all_black(img):
-            logger.warning(f"🔍 DEBUG: Original image at index {idx} is completely black")
 
         boxes, labels, areas, iscrowd = [], [], [], []
         for a in anns:
@@ -1481,21 +1502,8 @@ class CocoDetWrapped(Dataset):
             "iscrowd": iscrowd,
         }
 
-        # For debugging - collect original and transformed images
-        if self.debug_mode:
-            orig_is_black = _img_all_black(img)
-
-            # Apply transforms
-            if self.transforms is not None:
-                img, target = self.transforms(img, target)
-
-                # Check if image became black after transformation
-                if not orig_is_black and _img_all_black(img):
-                    logger.warning(f"🔍 DEBUG: Image at index {idx} with ID {image_id.item()} became black after transforms")
-        else:
-            # Regular non-debug processing
-            if self.transforms is not None:
-                img, target = self.transforms(img, target)
+        if self.transforms is not None:
+            img, target = self.transforms(img, target)
 
         return img, target
 
