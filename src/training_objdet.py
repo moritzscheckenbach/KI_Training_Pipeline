@@ -565,12 +565,18 @@ def main(cfg: AIPipelineConfig):
     num_classes = cfg.dataset.num_classes
     cm_ext = confusion_matrix_detection(all_preds, all_gts, num_classes=num_classes, iou_thr=0.5, score_thr=0.5)
 
-    fig, ax = plt.subplots(figsize=(8, 8))
-    im = ax.imshow(cm_ext, interpolation="nearest")
-    ax.set_title("Confusion Matrix (GT rows, Pred cols)\nLast column=FN, Last row=FP")
-    ax.set_xlabel("Predicted class")
-    ax.set_ylabel("Ground truth class")
-    plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+    fig, ax = plt.subplots(figsize=(10, 8))
+    im = ax.imshow(cm_ext, interpolation="nearest", cmap="Blues", alpha=0.6)
+    ax.set_title("Confusion Matrix (GT rows, Pred cols)\nLast column=FN, Last row=FP", fontsize=14, fontweight="bold")
+    ax.set_xlabel("Predicted class", fontsize=12)
+    ax.set_ylabel("Ground truth class", fontsize=12)
+
+    # Text in jede Kachel schreiben
+    for i in range(cm_ext.shape[0]):
+        for j in range(cm_ext.shape[1]):
+            text_color = "white" if cm_ext[i, j] > cm_ext.max() / 2 else "black"
+            ax.text(j, i, str(int(cm_ext[i, j])), ha="center", va="center", fontsize=10, fontweight="bold", color=text_color)
+
     ax.set_xticks(np.arange(num_classes + 1))
     ax.set_yticks(np.arange(num_classes + 1))
     ax.set_xticklabels([str(i) for i in range(num_classes)] + ["FP"])
