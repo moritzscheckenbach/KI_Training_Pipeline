@@ -78,14 +78,22 @@ class TransferLearningModel(nn.Module):
         """Friert die ersten N Layer ein"""
         freeze_until_layer = self.cfg.model.transfer_learning.freezing.freeze_early_layers.freeze_until_layer
 
-        if hasattr(self.base_model, "backbone"):
-            children = list(self.base_model.backbone.children())
+        # Dynamischen Backbone-Namen aus der Config nutzen, Fallback auf "backbone"
+        backbone_name = getattr(self.cfg.model.transfer_learning.freezing.freeze_early_layers, "backbone_name", None)
+        if backbone_name is None:
+            # Falls nicht gesetzt, prüfen ob es unter freeze_backbone konfiguriert ist (Kompatibilität)
+            backbone_name = getattr(self.cfg.model.transfer_learning.freezing.freeze_backbone, "backbone_name", "backbone")
+
+        if hasattr(self.base_model, backbone_name):
+            backbone = getattr(self.base_model, backbone_name)
+            children = list(backbone.children())
             for i, child in enumerate(children):
                 if i < freeze_until_layer:
                     for param in child.parameters():
                         param.requires_grad = False
-
-        print(f"🧊 Froze first {freeze_until_layer} layers")
+            print(f"🧊 Froze first {freeze_until_layer} layers of backbone '{backbone_name}'")
+        else:
+            print(f"⚠️ Backbone '{backbone_name}' not found on base_model. No layers frozen.")
 
     def _freeze_backbone(self):
         """Friert das gesamte Backbone ein"""

@@ -249,10 +249,12 @@ if mode == "Transferlearning: selbstrainiertes Modell":
 
             if freezing_strategy == "freeze_all_except_head":
                 head_name = st.text_input("Name des Heads (wird nicht eingefroren)", value="detection_head")
+
             if freezing_strategy == "freeze_backbone":
                 backbone_name = st.text_input("Name des Backbones (wird eingefroren)", value="backbone")
 
             if freezing_strategy == "freeze_early_layers":
+                backbone_name = st.text_input("ACHTUNG! Layers müssen children von Backbone sein. Name des Backbones:", value="backbone")
                 freeze_until_layer = st.number_input("Freeze Until Layer", min_value=1, max_value=50, value=6)
 
             if freezing_strategy == "custom_freeze":
@@ -306,7 +308,7 @@ config = {
                     "head_name": head_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_all_except_head" else "detection_head"
                 },
                 "freeze_backbone": {
-                    "backbone_name": backbone_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_backbone" else "backbone"
+                    "backbone_name": backbone_name if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and (freezing_strategy == "freeze_backbone" or freezing_strategy == "freeze_early_layers") else "backbone"
                 },
                 "freeze_early_layers": {
                     "freeze_until_layer": int(freeze_until_layer) if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_early_layers" else 6
