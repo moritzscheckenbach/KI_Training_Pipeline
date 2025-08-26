@@ -36,7 +36,7 @@ def main(cfg: AIPipelineConfig):
     """
     Main function for training the model.
     """
-    # Experiment setup
+    # Experiment setup =============================================================================
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     transfer_learning_enabled = cfg.model.transfer_learning.enabled
@@ -46,7 +46,7 @@ def main(cfg: AIPipelineConfig):
     src = to_absolute_path("conf/config.yaml")
     shutil.copy(src, os.path.join(experiment_dir, "configs", "config.yaml"))
 
-    # Logger setup
+    # Logger setup =================================================================================
     debug_mode = cfg.training.debug_mode
     log_file_path = setup_logger(experiment_dir, debug_mode)
 
@@ -62,35 +62,35 @@ def main(cfg: AIPipelineConfig):
     logger.info(f"📁 Experiment directory: {experiment_dir}")
     logger.info(f"📝 Log file: {log_file_path}")
 
-    # Model loading
+    # Model loading ================================================================================
     model, model_architecture, model_name = load_model(cfg)
     model_need = model_architecture.get_model_need()
 
-    # Data augmentation
+    # Data augmentation ============================================================================
     v2_train_tf, v2_eval_tf = setup_transforms(cfg, model_architecture)
 
-    # Dataset loading
+    # Dataset loading ==============================================================================
     train_dataset, val_dataset, test_dataset = load_datasets(cfg, v2_train_tf, v2_eval_tf)
     train_dataloader, val_dataloader, test_dataloader = create_dataloaders(cfg, train_dataset, val_dataset, test_dataset)
 
-    # Model to device
+    # Model to device ==============================================================================
     device = setup_device(model)
 
-    # Optimizer setup
+    # Optimizer setup ==============================================================================
     optimizer = setup_optimizer(cfg, model)
 
-    # Scheduler setup
+    # Scheduler setup ==============================================================================
     scheduler, use_scheduler = setup_scheduler(cfg, optimizer)
 
-    # TensorBoard setup
+    # TensorBoard setup ============================================================================
     writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
     logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
 
-    # log model parameters
+    # log model parameters =========================================================================
     n_params = sum(p.numel() for p in model.parameters())
     writer.add_scalar("Model/num_parameters", n_params, 0)
 
-    # Training loop
+    # Training loop ================================================================================
     best_val_loss = float("inf")
     patience_counter = 0
 
@@ -106,27 +106,27 @@ def main(cfg: AIPipelineConfig):
         clear_gpu_cache()
         logger.info(f"📈 Epoch {epoch+1}/{cfg.training.epochs}")
 
-        # =============================================================================
+        # =========================================================================================
         # TRAINING PHASE
-        # =============================================================================
+        # =========================================================================================
         avg_train_loss, global_step = train_one_epoch(cfg, model, train_dataloader, optimizer, device, global_step, writer, model_need)
 
         log_model_parameters(model, writer, epoch)
 
-        # Log train visualizations
+        # Log train visualizations ================================================================
         if epoch % log_images_every_n_epochs == 0:
             images, targets = next(iter(train_dataloader))
             if images is not None and targets is not None:
                 images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
                 log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need)
 
-        # Validation
+        # Validation ==============================================================================
         avg_val_loss, loss_dict = validate_model(cfg, model, val_dataloader, device, writer, epoch, model_need)
 
-        # Evaluation
+        # Evaluation ==============================================================================
         evaluate_coco_metrics(cfg, model, val_dataloader, device, writer, epoch, model_need)
 
-        # Scheduler step
+        # Scheduler step ==========================================================================
         if use_scheduler:
             if cfg.scheduler.type == "ReduceLROnPlateau":
                 scheduler.step(avg_val_loss)
@@ -136,21 +136,21 @@ def main(cfg: AIPipelineConfig):
             writer.add_scalar("Learning_Rate", current_lr, epoch)
             logger.info(f"📈 Current Learning Rate: {current_lr:.6f}")
 
-        # Log epoch-level scalars
+        # Log epoch-level scalars ==================================================================
         writer.add_scalar("Loss/Train", avg_train_loss, epoch)
         writer.add_scalar("Loss/Validation", avg_val_loss, epoch)
 
-        # Log loss components
+        # Log loss components ======================================================================
         if isinstance(loss_dict, dict):
             for loss_name, loss_value in loss_dict.items():
                 scalar_value = loss_value.item() if isinstance(loss_value, torch.Tensor) else float(loss_value)
                 writer.add_scalar(f"Loss_Components/{loss_name}", scalar_value, epoch)
 
-        # Save checkpoints
+        # Save checkpoints =========================================================================
         is_best = avg_val_loss < best_val_loss
         save_checkpoint(model, optimizer, epoch, avg_train_loss, avg_val_loss, experiment_dir, is_best=is_best)
 
-        # Early stopping logic
+        # Early stopping logic =====================================================================
         if is_best:
             best_val_loss = avg_val_loss
             patience_counter = 0
@@ -161,21 +161,21 @@ def main(cfg: AIPipelineConfig):
                 logger.info("⏹️ Early stopping triggered.")
                 break
 
-    # Evaluation
+    # Evaluation ===================================================================================
     logger.info("🧪 Starting test evaluation (loss)")
     model.load_state_dict(torch.load(f"{experiment_dir}/models/best_model_weights.pth", weights_only=True))
     avg_test_loss, _ = validate_model(cfg, model, test_dataloader, device, writer, cfg.training.epochs, model_need)
     logger.info(f"🧪 Test Loss: {avg_test_loss:.4f}")
     writer.add_scalar("Test/Loss", avg_test_loss, cfg.training.epochs)
 
-    # Confusion Matrix
+    # Confusion Matrix =============================================================================
     build_confusion_matrix(cfg, model, test_dataloader, device, writer, cfg.dataset.num_classes, model_need)
 
-    # Finalize experiment
+    # Finalize experiment ==========================================================================
     create_experiment_summary(cfg, experiment_name, model_name, timestamp, cfg.training.epochs, best_val_loss, avg_test_loss, experiment_dir)
     writer.close()
 
-    # Final logging
+    # Final logging ================================================================================
     logger.success(f"✅ Training completed!")
     logger.info(f"📁 Results saved in: {experiment_dir}")
     logger.info(f"🏆 Best model: {experiment_dir}/models/best_model.pth")
@@ -184,9 +184,9 @@ def main(cfg: AIPipelineConfig):
     logger.info(f"📝 Training log: {log_file_path}")
 
 
-# =============================================================================
+# ==================================================================================================
 # TRAIN FUNCTIONS
-# =============================================================================
+# ==================================================================================================
 def setup_experiment_dir(timestamp: str, model_type: str, model_name: str, transfer_learning_enabled: bool) -> str:
     """
     Setup experiment directory structure
