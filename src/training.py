@@ -5,24 +5,24 @@ import sys
 
 def start_user_interface():
     """
-    Startet das User Interface mit Streamlit
+    Starts the User Interface with Streamlit
     """
     try:
-        # Überprüfe ob User_Interface.py existiert
+        # Check if User_Interface.py exists
         ui_file = "User_Interface.py"
         if not os.path.exists(ui_file):
-            print(f"Fehler: {ui_file} wurde nicht gefunden!")
+            print(f"Error: {ui_file} not found!")
             return False
 
-        # Starte Streamlit mit User_Interface.py
-        print("Starte User Interface...")
+        # Start Streamlit with User_Interface.py
+        print("Starting User Interface...")
         subprocess.run([sys.executable, "-m", "streamlit", "run", ui_file], check=True)
 
     except subprocess.CalledProcessError as e:
-        print(f"Fehler beim Starten von Streamlit: {e}")
+        print(f"Error starting Streamlit: {e}")
         return False
     except FileNotFoundError:
-        print("Fehler: Streamlit ist nicht installiert. Installiere es mit: pip install streamlit")
+        print("Error: Streamlit is not installed. Install it with: pip install streamlit")
         return False
 
     return True
@@ -30,11 +30,11 @@ def start_user_interface():
 
 def main():
     """
-    Hauptfunktion der Training Pipeline
+    Main function of the Training Pipeline
     """
-    print("Training Pipeline gestartet...")
+    print("Training Pipeline started...")
 
-    # Starte das User Interface
+    # Start the User Interface
     start_user_interface()
 
 

@@ -19,8 +19,8 @@ from torchvision.datasets import ImageFolder
 @hydra.main(version_base=None, config_path="conf", config_name="config")
 def train(cfg: DictConfig):
     """
-    Training pipeline für Klassifizierung (ImageNet-Ordnerstruktur).
-    Logs und Struktur wie Original, aber statt Objekt­erkennung einfache Bildklassifizierung.
+    Training pipeline for classification (ImageNet folder structure).
+    Logs and structure like the original, but uses simple image classification instead of object detection.
     """
 
     # =============================================================================
@@ -53,14 +53,10 @@ def train(cfg: DictConfig):
     # 2. LOGGER SETUP
     # =============================================================================
     logger.remove()
-    logger.add(lambda msg: print(msg, end=""),
-               format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>",
-               level="INFO", colorize=True)
+    logger.add(lambda msg: print(msg, end=""), format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <level>{message}</level>", level="INFO", colorize=True)
 
     log_file_path = f"{experiment_dir}/training.log"
-    logger.add(log_file_path,
-               format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}",
-               level="DEBUG", rotation="100 MB", retention="10 days")
+    logger.add(log_file_path, format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {message}", level="DEBUG", rotation="100 MB", retention="10 days")
 
     shutil.copy("conf/config.yaml", f"{experiment_dir}/configs/config.yaml")
 
@@ -95,15 +91,8 @@ def train(cfg: DictConfig):
     base_transform = augmentation.augment()
     logger.info(f"🔄 Using augmentation: {cfg.augmentation.file}")
 
-    transform_train = transforms.Compose([
-        transforms.Resize((inputsize_x, inputsize_y)),
-        base_transform,
-        transforms.ToTensor()
-    ])
-    transform_val_test = transforms.Compose([
-        transforms.Resize((inputsize_x, inputsize_y)),
-        transforms.ToTensor()
-    ])
+    transform_train = transforms.Compose([transforms.Resize((inputsize_x, inputsize_y)), base_transform, transforms.ToTensor()])
+    transform_val_test = transforms.Compose([transforms.Resize((inputsize_x, inputsize_y)), transforms.ToTensor()])
 
     # =============================================================================
     # 5. DATASET LOADING (ImageFolder)
@@ -212,8 +201,7 @@ def train(cfg: DictConfig):
         avg_val_loss = val_loss / len(val_dataloader)
         val_acc = 100.0 * correct_val / total_val
 
-        logger.info(f"   Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%, "
-                    f"Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%")
+        logger.info(f"   Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.2f}%, " f"Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.2f}%")
 
         # Scheduler step
         if use_scheduler:
@@ -232,12 +220,15 @@ def train(cfg: DictConfig):
             best_val_loss = avg_val_loss
             patience_counter = 0
             torch.save(model.state_dict(), f"{experiment_dir}/models/best_model_weights.pth")
-            torch.save({
-                "epoch": epoch,
-                "train_loss": avg_train_loss,
-                "val_loss": avg_val_loss,
-                "optimizer_state_dict": optimizer.state_dict(),
-            }, f"{experiment_dir}/models/best_model_info.pth")
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "train_loss": avg_train_loss,
+                    "val_loss": avg_val_loss,
+                    "optimizer_state_dict": optimizer.state_dict(),
+                },
+                f"{experiment_dir}/models/best_model_info.pth",
+            )
             logger.info(f"💾 New best model saved! Val Loss: {avg_val_loss:.4f}")
         else:
             patience_counter += 1
@@ -245,14 +236,10 @@ def train(cfg: DictConfig):
                 logger.warning("⏹️ Early stopping triggered.")
                 break
 
-        torch.save({
-            "epoch": epoch,
-            "model_state_dict": model.state_dict(),
-            "optimizer_state_dict": optimizer.state_dict(),
-            "train_loss": avg_train_loss,
-            "val_loss": avg_val_loss,
-            "config": cfg
-        }, f"{experiment_dir}/models/last_model.pth")
+        torch.save(
+            {"epoch": epoch, "model_state_dict": model.state_dict(), "optimizer_state_dict": optimizer.state_dict(), "train_loss": avg_train_loss, "val_loss": avg_val_loss, "config": cfg},
+            f"{experiment_dir}/models/last_model.pth",
+        )
 
     # =============================================================================
     # 11. TEST EVALUATION

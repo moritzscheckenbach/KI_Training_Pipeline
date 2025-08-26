@@ -1,12 +1,12 @@
-# KI_Training_Pipeline
+# AI_Training_Pipeline
 
 ## Contents
-Inhaltsverzeichnis einfügen!!!
+Insert table of contents!!!
 
 ## Quick Start
 
 0. Run `package_installer.py`. It installs all necessary packages.
-1. Run `training.py`. It starts a [browser app](http://localhost:8501) for training  configuration.
+1. Run `training.py`. It starts a [browser app](http://localhost:8501) for training configuration.
 2. Move the created config.yaml to folder: src>>conf
 3. Depending on the task, run `training_[task].py`
 4. Open [Tensorboard](http://127.0.0.1:16006/) for output.
@@ -46,15 +46,15 @@ Inhaltsverzeichnis einfügen!!!
 
 ## Continuations
 
-- Verwendung und Beispiele: Verwenden Sie diesen Abschnitt, um gegebenenfalls Beschreibungen und Anwendungsbeispiele für Ihr Projekt bereitzustellen.
+- Usage and Examples: Use this section to provide descriptions and usage examples for your project.
 
-- Abhängigkeiten: Listen Sie alle externen Bibliotheken oder Pakete auf, die zum Ausführen Ihres Projekts erforderlich sind. Dies hilft Benutzern zu verstehen, womit sie vertraut sein sollten.
+- Dependencies: List all external libraries or packages needed to run your project. This helps users understand what they should be familiar with.
 
-- Dokumentation und Links: Stellen Sie Links zu zusätzlicher Dokumentation, der Projektwebsite oder verwandten Ressourcen bereit.
+- Documentation and Links: Provide links to additional documentation, the project website, or related resources.
 
-- Änderungsprotokoll: Fügen Sie einen Abschnitt hinzu, der die Änderungen, Aktualisierungen und Verbesserungen auflistet, die in jeder Version Ihres Projekts vorgenommen wurden.
+- Changelog: Add a section listing the changes, updates, and improvements made in each version of your project.
 
-- Bekannte Probleme: Listen Sie alle bekannten Probleme oder Einschränkungen mit der aktuellen Version Ihres Projekts auf. Dies kann eine Gelegenheit für Beiträge bieten, die sich mit dem Thema befassen.
+- Known Issues: List any known issues or limitations with the current version of your project. This can provide an opportunity for contributions that address the issue.
 
 ## Start Training Workflow
 ```mermaid

@@ -41,11 +41,11 @@ Model boundary (training loss)
 
 
 
-## Gesamtfluss: Formate über die Pipeline
+## Complete Flow: Formats across the Pipeline
 
 ```mermaid
 flowchart TD
-    A["Dataset sample: img PIL/Tensor; target COCO-list oder dict"] --> B["COCOWrapper pre: boxes → BoundingBoxes XYWH"]
+    A["Dataset sample: img PIL/Tensor; target COCO-list or dict"] --> B["COCOWrapper pre: boxes → BoundingBoxes XYWH"]
     B --> C["Transforms + Resize (Train: augment; Val: ToImage/ToDtype/Sanitize)"]
     C --> D["COCOWrapper writeback: boxes Tensor XYWH; labels int64"]
     D --> E["DataLoader + collate_fn: images list(Tensor CHW f32); targets list(dict XYWH)"]
@@ -58,7 +58,7 @@ flowchart TD
 ```
 
 
-## Ablauf einer Trainings-Epoche (Sequenz)
+## Training Epoch Sequence
 
 ```mermaid
 sequenceDiagram

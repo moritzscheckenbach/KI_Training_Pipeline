@@ -19,22 +19,22 @@ yaml.indent(mapping=2, sequence=4, offset=2)
 
 
 def quote_specific_strings(data):
-    """Nur bestimmte Strings in Anführungszeichen setzen und bestimmte Arrays als Flow-Style"""
+    """Only set specific strings in quotation marks and specific arrays as flow-style"""
     if isinstance(data, dict):
         result = {}
         for k, v in data.items():
-            # Bestimmte Keys, deren Werte in Anführungszeichen sollen
+            # Specific keys whose values should be in quotes
             if k in ["file", "type", "path", "trans_file", "strategy", "root", "head_name", "backbone_name"]:
                 if isinstance(v, str) and v:
                     result[k] = DoubleQuotedScalarString(v)
                 else:
                     result[k] = v
-            # Bestimmte Arrays sollen als Flow-Style (eckige Klammern) dargestellt werden
+            # Specific arrays should be displayed as flow-style (square brackets)
             elif k in ["betas", "freeze_layers", "unfreeze_layers"]:
                 if isinstance(v, list):
                     flow_seq = CommentedSeq(v)
                     flow_seq.fa.set_flow_style()
-                    # Strings in diesen Arrays auch quotieren
+                    # Also quote strings in these arrays
                     if k in ["freeze_layers", "unfreeze_layers"] and all(isinstance(item, str) for item in v):
                         flow_seq[:] = [DoubleQuotedScalarString(item) if item else item for item in v]
                     result[k] = flow_seq
@@ -44,7 +44,7 @@ def quote_specific_strings(data):
                 result[k] = quote_specific_strings(v)
         return result
     elif isinstance(data, list):
-        # Listen von Strings (außer den speziellen Flow-Style Listen) auch quotieren
+        # Lists of strings (except the special flow-style lists) should also be quoted
         if all(isinstance(item, str) for item in data):
             return [DoubleQuotedScalarString(item) if item else item for item in data]
         else:
@@ -76,7 +76,7 @@ def list_files(path: Path, suffix=".py") -> list[str]:
 
 
 def get_dataset_options(datasets_root: Path, task: str) -> list[str]:
-    """Durchsucht datasets/{task}/ nach Type-Ordnern und deren Datasets"""
+    """Searches datasets/{task}/ for Type folders and their datasets"""
     task_path = datasets_root / task
     if not task_path.exists():
         return []
@@ -95,7 +95,7 @@ def get_dataset_options(datasets_root: Path, task: str) -> list[str]:
 
 
 def get_num_classes(datasets_root: Path, task: str, dataset_path: str) -> int:
-    """Liest num_classes aus der classes.yaml Datei"""
+    """Reads num_classes from the classes.yaml file"""
     try:
         classes_file = datasets_root / task / dataset_path / "classes.yaml"
         if classes_file.exists():
@@ -114,7 +114,7 @@ st.set_page_config(page_title="Training Pipeline Config", layout="wide")
 st.title("Training Pipeline Configuration")
 
 # =========================
-# Basisordner
+# Base folders
 # =========================
 datasets_root = Path("datasets")
 augmentations_root = Path("augmentations")
@@ -122,68 +122,68 @@ augmentations_root = Path("augmentations")
 # =========================
 # Task Selection
 # =========================
-st.subheader("1. Task auswählen")
+st.subheader("1. Select Task")
 task_options = ["classification", "object_detection", "segmentation"]
 task = st.selectbox("Task", task_options, index=0)
 
 # =========================
 # Dataset Selection
 # =========================
-st.subheader("2. Dataset auswählen")
+st.subheader("2. Select Dataset")
 dataset_options = get_dataset_options(datasets_root, task)
 if not dataset_options:
-    st.info(f"Keine Datasets in 'datasets/{task}/' gefunden.")
+    st.info(f"No datasets found in 'datasets/{task}/'.")
     dataset = None
 else:
     dataset = st.selectbox("Dataset", dataset_options)
 
 # Dataset Split Configuration
-st.markdown("**Dataset Split Konfiguration**")
-split_mode_options = ["Ja", "Nein"]
-split_mode = st.radio("Datensatz bereits in train/valid/test gesplittet?", split_mode_options, horizontal=True)
+st.markdown("**Dataset Split Configuration**")
+split_mode_options = ["Yes", "No"]
+split_mode = st.radio("Is dataset already split into train/valid/test?", split_mode_options, horizontal=True)
 
 # Default split ratios
 train_ratio = 0.70
 val_ratio = 0.15
 test_ratio = 0.15
 
-if split_mode == "Nein":
-    st.markdown("**Split Verhältnisse definieren**")
+if split_mode == "No":
+    st.markdown("**Define Split Ratios**")
     col1, col2, col3 = st.columns(3)
-    
+
     with col1:
         train_ratio = st.number_input("Train Ratio", min_value=0.0, max_value=1.0, value=0.70, format="%.2f")
     with col2:
         val_ratio = st.number_input("Val Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
     with col3:
         test_ratio = st.number_input("Test Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
-    
+
     # Validation: Check if sum equals 1
     total_ratio = train_ratio + val_ratio + test_ratio
     if abs(total_ratio - 1.0) > 0.001:  # Small tolerance for floating point errors
-        st.error(f"⚠️ Die Summe der Verhältnisse muss 1.0 ergeben! Aktuell: {total_ratio:.3f}")
+        st.error(f"⚠️ The sum of ratios must equal 1.0! Current: {total_ratio:.3f}")
     else:
-        st.success(f"✅ Split Verhältnisse korrekt: {total_ratio:.3f}")
+        st.success(f"✅ Split ratios correct: {total_ratio:.3f}")
 
 # =========================
 # Augmentation Selection
 # =========================
-st.subheader("3. Augmentation auswählen")
+st.subheader("3. Select Augmentation")
 augmentation_options = list_files(augmentations_root, ".py")
 if not augmentation_options:
-    st.info("Keine Augmentation-Dateien in 'augmentations/' gefunden.")
+    st.info("No augmentation files found in 'augmentations/'.")
     augmentation = None
 else:
     augmentation = st.selectbox("Augmentation", augmentation_options)
 
 # =========================
-# Modus Selection
+# Mode Selection
 # =========================
-st.subheader("4. Trainingsmodus")
-mode_options = ["Training aus Architektur", "Transferlearning: selbstrainiertes Modell"]
-mode = st.radio("Modus wählen", mode_options, horizontal=True)
-debug_option = st.selectbox("Debug Modus", ["Nein", "Ja"], index=0)
-modus_debug = True if debug_option == "Ja" else False
+st.subheader("4. Training Mode")
+mode_options = ["Training from Architecture", "Transfer Learning: Self-trained Model"]
+mode = st.radio("Select Mode", mode_options, horizontal=True)
+debug_option = st.selectbox("Debug Mode", ["No", "Yes"], index=0)
+modus_debug = True if debug_option == "Yes" else False
 
 # =========================
 # Architecture/Model Selection based on Mode
@@ -195,37 +195,37 @@ head_name = "detection_head"
 backbone_name = "backbone"
 
 
-if mode == "Training aus Architektur":
-    st.subheader("5. Architektur auswählen")
+if mode == "Training from Architecture":
+    st.subheader("5. Select Architecture")
     architecture_root = Path("model_architecture") / task
     architecture_options = list_files(architecture_root, ".py")
     if not architecture_options:
-        st.info(f"Keine Architektur-Dateien in 'model_architecture/{task}/' gefunden.")
+        st.info(f"No architecture files found in 'model_architecture/{task}/'.")
         architecture = None
     else:
-        architecture = st.selectbox("Architektur", architecture_options)
+        architecture = st.selectbox("Architecture", architecture_options)
 
-elif mode == "Transferlearning: selbstrainiertes Modell":
-    st.subheader("5. Modell auswählen")
+elif mode == "Transfer Learning: Self-trained Model":
+    st.subheader("5. Select Model")
     model_root = Path("trained_models") / task
     model_options = list_dirs(model_root)
     if not model_options:
-        st.info(f"Keine Modelle in 'trained_models/{task}/' gefunden.")
+        st.info(f"No models found in 'trained_models/{task}/'.")
         model = None
     else:
-        model = st.selectbox("Modell", model_options)
-        head_name = st.text_input("Name des Heads", value="detection_head")
-        backbone_name = st.text_input("Name des Backbones", value="backbone")
+        model = st.selectbox("Model", model_options)
+        head_name = st.text_input("Head Name", value="detection_head")
+        backbone_name = st.text_input("Backbone Name", value="backbone")
 
 # =========================
 # Training Configuration
 # =========================
-st.subheader("Training Konfiguration")
+st.subheader("Training Configuration")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("**Training Parameter**")
+    st.markdown("**Training Parameters**")
     epochs = st.number_input("Epochs", min_value=1, max_value=1000, value=5)
     batch_size = st.number_input("Batch Size", min_value=1, max_value=512, value=16)
     learning_rate = st.number_input("Learning Rate", min_value=1e-8, max_value=1.0, value=0.001, format="%.6f")
@@ -233,7 +233,7 @@ with col1:
     random_seed = st.number_input("Random Seed", min_value=0, max_value=999999, value=42)
 
 with col2:
-    st.markdown("**Scheduler Parameter**")
+    st.markdown("**Scheduler Parameters**")
     scheduler_type = st.selectbox("Scheduler Type", ["StepLR", "MultiStepLR", "ExponentialLR", "CosineAnnealingLR", "ReduceLROnPlateau"])
     scheduler_patience = st.number_input("Scheduler Patience", min_value=1, max_value=100, value=5)
     scheduler_factor = st.number_input("Scheduler Factor", min_value=0.01, max_value=1.0, value=0.5, format="%.3f")
@@ -242,7 +242,7 @@ with col2:
 # =========================
 # Optimizer Configuration
 # =========================
-st.markdown("**Optimizer Parameter**")
+st.markdown("**Optimizer Parameters**")
 
 col1, col2, col3 = st.columns(3)
 
@@ -262,10 +262,10 @@ with col3:
         momentum = st.number_input("Momentum", min_value=0.0, max_value=1.0, value=0.9, format="%.3f")
 
 # =========================
-# Model Configuration (nur bei Transferlearning)
+# Model Configuration (only for Transfer Learning)
 # =========================
-if mode == "Transferlearning: selbstrainiertes Modell":
-    st.subheader("Model Konfiguration")
+if mode == "Transfer Learning: Self-trained Model":
+    st.subheader("Model Configuration")
 
     col1, col2 = st.columns(2)
 
@@ -277,7 +277,7 @@ if mode == "Transferlearning: selbstrainiertes Modell":
             freezing_strategy = st.selectbox("Freezing Strategy", ["freeze_all_except_head", "freeze_early_layers", "freeze_backbone", "unfreeze_all", "custom_freeze"])
 
             if freezing_strategy == "freeze_early_layers":
-                freeze_until_layer = st.number_input("Freeze Until Layer. ACHTUNG! Layers müssen children von Backbone sein.", min_value=1, max_value=50, value=6)
+                freeze_until_layer = st.number_input("Freeze Until Layer. CAUTION! Layers must be children of Backbone.", min_value=1, max_value=50, value=6)
 
             if freezing_strategy == "custom_freeze":
                 st.markdown("**Custom Freeze Settings**")
@@ -301,7 +301,7 @@ if mode == "Transferlearning: selbstrainiertes Modell":
 # Parse dataset type from dataset selection
 dataset_type = ""
 if dataset:
-    dataset_type = dataset.split("/")[0]  # z.B. "Type_COCO" aus "Type_COCO/Test_Duckiebots"
+    dataset_type = dataset.split("/")[0]  # e.g. "Type_COCO" from "Type_COCO/Test_Duckiebots"
 
 # Get num_classes from classes.yaml
 num_classes = get_num_classes(datasets_root, task, dataset) if dataset else 1
@@ -327,42 +327,37 @@ config = {
         "type": task,
         "file": architecture if architecture else "",
         "transfer_learning": {
-            "enabled": mode == "Transferlearning: selbstrainiertes Modell",
+            "enabled": mode == "Transfer Learning: Self-trained Model",
             "path": f"trained_models/{task}/{model}/models/best_model_weights.pth" if model else "",
             "trans_file": "transferlearning",
             "head_name": head_name,
             "backbone_name": backbone_name,
             "freezing": {
-                "enabled": bool(freezing_enabled) if mode == "Transferlearning: selbstrainiertes Modell" else False,
-                "strategy": freezing_strategy if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled else "freeze_all_except_head",
+                "enabled": bool(freezing_enabled) if mode == "Transfer Learning: Self-trained Model" else False,
+                "strategy": freezing_strategy if mode == "Transfer Learning: Self-trained Model" and freezing_enabled else "freeze_all_except_head",
                 "freeze_early_layers": {
-                    "freeze_until_layer": int(freeze_until_layer) if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "freeze_early_layers" else 6
+                    "freeze_until_layer": int(freeze_until_layer) if mode == "Transfer Learning: Self-trained Model" and freezing_enabled and freezing_strategy == "freeze_early_layers" else 6
                 },
                 "custom": {
                     "freeze_layers": (
-                        freeze_layers if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "custom_freeze" else ["backbone.layer1", "backbone.layer2"]
+                        freeze_layers if mode == "Transfer Learning: Self-trained Model" and freezing_enabled and freezing_strategy == "custom_freeze" else ["backbone.layer1", "backbone.layer2"]
                     ),
                     "unfreeze_layers": (
-                        unfreeze_layers if mode == "Transferlearning: selbstrainiertes Modell" and freezing_enabled and freezing_strategy == "custom_freeze" else ["detection_head", "backbone.layer4"]
+                        unfreeze_layers if mode == "Transfer Learning: Self-trained Model" and freezing_enabled and freezing_strategy == "custom_freeze" else ["detection_head", "backbone.layer4"]
                     ),
                 },
             },
             "lr": {
-                "backbone_lr_multiplier": float(backbone_lr_multiplier) if mode == "Transferlearning: selbstrainiertes Modell" else 0.1,
-                "head_lr_multiplier": float(head_lr_multiplier) if mode == "Transferlearning: selbstrainiertes Modell" else 1.0,
+                "backbone_lr_multiplier": float(backbone_lr_multiplier) if mode == "Transfer Learning: Self-trained Model" else 0.1,
+                "head_lr_multiplier": float(head_lr_multiplier) if mode == "Transfer Learning: Self-trained Model" else 1.0,
             },
         },
     },
     "dataset": {
-        "root": f"datasets/{task}/{dataset}/" if dataset else "", 
-        "type": dataset_type, 
+        "root": f"datasets/{task}/{dataset}/" if dataset else "",
+        "type": dataset_type,
         "num_classes": num_classes,
-        "autosplit": {
-            "enabled": not split_mode == "Ja",
-            "train_ratio": float(train_ratio),
-            "val_ratio": float(val_ratio),
-            "test_ratio": float(test_ratio)
-        }
+        "autosplit": {"enabled": not split_mode == "Yes", "train_ratio": float(train_ratio), "val_ratio": float(val_ratio), "test_ratio": float(test_ratio)},
     },
 }
 
@@ -370,19 +365,19 @@ config = {
 # YAML Preview & Save
 # =========================
 st.markdown("---")
-st.subheader("YAML Vorschau")
+st.subheader("YAML Preview")
 yaml_text = dump_yaml_str(config)
 st.code(yaml_text, language="yaml")
 
 col1, col2 = st.columns(2)
 
 with col1:
-    if st.button("Training starten"):
+    if st.button("Start Training"):
         output_path = Path("conf/config.yaml")
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w", encoding="utf-8") as f:
             f.write(yaml_text)
-        st.success(f"Gespeichert: {output_path.resolve()}")
+        st.success(f"Saved: {output_path.resolve()}")
 
         # Start the appropriate training file based on task
         training_files = {"classification": "training_class.py", "object_detection": "training_objdet.py", "segmentation": "training_seg.py"}
@@ -390,7 +385,7 @@ with col1:
         training_file = training_files.get(task)
         if training_file and Path(training_file).exists():
             try:
-                st.info(f"Starte Training für {task}...")
+                st.info(f"Starting training for {task}...")
                 # Start training in a new terminal window
                 import shutil
                 import subprocess
@@ -398,34 +393,34 @@ with col1:
 
                 # Check which terminal is available and use the best option
                 if shutil.which("xterm"):
-                    # Basic xterm (always available) - ZUERST prüfen!
-                    st.info("Verwende xterm...")
-                    terminal_command = ["xterm", "-e", f"bash -c 'cd {Path.cwd()} && {sys.executable} {training_file}; echo \"Training beendet. Drücke Enter zum Schließen...\"; read'"]
+                    # Basic xterm (always available) - CHECK FIRST!
+                    st.info("Using xterm...")
+                    terminal_command = ["xterm", "-e", f"bash -c 'cd {Path.cwd()} && {sys.executable} {training_file}; echo \"Training completed. Press Enter to close...\"; read'"]
                 elif shutil.which("konsole"):
                     # KDE terminal
-                    terminal_command = ["konsole", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                    terminal_command = ["konsole", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training completed. Press Enter to close...'; read"]
                 elif shutil.which("x-terminal-emulator"):
                     # Standard Linux terminal (might link to problematic gnome-terminal)
-                    st.warning("Verwende x-terminal-emulator (könnte gnome-terminal sein)...")
-                    terminal_command = ["x-terminal-emulator", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                    st.warning("Using x-terminal-emulator (could be gnome-terminal)...")
+                    terminal_command = ["x-terminal-emulator", "-e", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training completed. Press Enter to close...'; read"]
                 elif shutil.which("gnome-terminal"):
                     # GNOME terminal (fallback)
-                    st.warning("Verwende gnome-terminal (könnte Snap-Probleme haben)...")
-                    terminal_command = ["gnome-terminal", "--", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training beendet. Drücke Enter zum Schließen...'; read"]
+                    st.warning("Using gnome-terminal (may have Snap issues)...")
+                    terminal_command = ["gnome-terminal", "--", "bash", "-c", f"cd {Path.cwd()} && {sys.executable} {training_file}; echo 'Training completed. Press Enter to close...'; read"]
                 else:
-                    st.error("Kein unterstütztes Terminal gefunden!")
+                    st.error("No supported terminal found!")
                     terminal_command = None
 
                 if terminal_command:
                     process = subprocess.Popen(terminal_command)
 
-                st.success(f"Training gestartet! Prozess-ID: {process.pid}")
-                st.info("Das Training läuft in einem neuen Terminalfenster. Du kannst den Fortschritt dort verfolgen.")
+                st.success(f"Training started! Process ID: {process.pid}")
+                st.info("Training is running in a new terminal window. You can follow the progress there.")
 
             except Exception as e:
-                st.error(f"Fehler beim Starten des Trainings: {e}")
+                st.error(f"Error starting training: {e}")
         else:
-            st.error(f"Training-Datei nicht gefunden: {training_file}")
+            st.error(f"Training file not found: {training_file}")
 
 with col2:
-    st.download_button("Als Download", data=yaml_text, file_name="config.yaml", mime="text/yaml")
+    st.download_button("Download", data=yaml_text, file_name="config.yaml", mime="text/yaml")
