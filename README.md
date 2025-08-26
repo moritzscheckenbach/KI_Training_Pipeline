@@ -1,5 +1,8 @@
 # KI_Training_Pipeline
 
+## Contents
+Inhaltsverzeichnis einfügen!!!
+
 ## Quick Start
 
 0. Run `package_installer.py`. It installs all necessary packages.
@@ -52,3 +55,96 @@
 - Änderungsprotokoll: Fügen Sie einen Abschnitt hinzu, der die Änderungen, Aktualisierungen und Verbesserungen auflistet, die in jeder Version Ihres Projekts vorgenommen wurden.
 
 - Bekannte Probleme: Listen Sie alle bekannten Probleme oder Einschränkungen mit der aktuellen Version Ihres Projekts auf. Dies kann eine Gelegenheit für Beiträge bieten, die sich mit dem Thema befassen.
+
+## Start Training Workflow
+```mermaid
+flowchart TD
+    Start([Start Application
+    by starting Training.py]) --> UserInterface[Launch User_Interface.py]
+    
+    UserInterface --> SelectTrainingSettings[Select Training Settings
+        - Task Type
+        - Dataset
+        - Augmentation
+        - Training Mode
+        - Architecture/Model
+        - Training Parameters
+        - Scheduler Settings
+        - Optimizer Settings
+        - Transfer Learning Options]
+        
+    SelectTrainingSettings --> YAMLPreview[Preview YAML]
+    YAMLPreview --> StartTrainingButton{Start Training?}
+    StartTrainingButton --> |No| Download[Download Config]
+    StartTrainingButton --> |Yes| SaveYAML[Save YAML to conf/config.yaml]
+    
+    SaveYAML --> DetectTask[Detect Selected Task]
+    DetectTask --> SelectTrainingFile[Select Appropriate Training File]
+    SelectTrainingFile --> |classification| ClassTraining[training_class.py]
+    SelectTrainingFile --> |object_detection| ObjDetTraining[training_objdet.py]
+    SelectTrainingFile --> |segmentation| SegTraining[training_seg.py]
+    
+    ClassTraining --> DetectTerminal[Detect Available Terminal]
+    ObjDetTraining --> DetectTerminal
+    SegTraining --> DetectTerminal
+    
+    DetectTerminal --> |Any Terminal| TrainingExecution[Execute Training Process]
+    
+    TrainingExecution --> InternalPipeline[Internal Training Pipeline]
+    InternalPipeline --> End([End])
+```
+
+___
+## Internal Pipeline Structure
+
+```mermaid
+flowchart TD
+    Start([Start]) --> ExperimentSetup[Setup Experiment Directory]
+    ExperimentSetup --> LoggerSetup[Setup Logger]
+    LoggerSetup --> ModelLoading[Load Model Architecture]
+    ModelLoading --> DataAugmentation[Setup Data Transforms/Augmentation]
+    DataAugmentation --> DatasetLoading[Load Datasets]
+    DatasetLoading --> DataLoaderCreation[Create DataLoaders]
+    DataLoaderCreation --> ModelToDevice[Model to Device]
+    ModelToDevice --> OptimizerSetup[Setup Optimizer]
+    OptimizerSetup --> SchedulerSetup[Setup LR Scheduler]
+    SchedulerSetup --> TensorBoardSetup[Setup TensorBoard]
+    
+    TensorBoardSetup --> TrainingLoop[Start Training Loop]
+    
+    TrainingLoop --> |For each epoch| ClearGPUCache[Clear GPU Cache]
+    ClearGPUCache --> TrainOneEpoch[Train One Epoch]
+    TrainOneEpoch --> LogParameters[Log Model Parameters]
+    LogParameters --> Visualizations[Log Visualizations]
+    Visualizations --> ValidationPhase[Validate Model]
+    ValidationPhase --> EvaluateMetrics[Evaluate COCO Metrics]
+    
+    EvaluateMetrics --> SchedulerStep{Use Scheduler?}
+    SchedulerStep --> |Yes| PerformSchedulerStep[Perform Scheduler Step]
+    SchedulerStep --> |No| LogEpochMetrics[Log Epoch Metrics]
+    PerformSchedulerStep --> LogEpochMetrics
+    
+    LogEpochMetrics --> SaveCheckpoint[Save Checkpoint]
+    SaveCheckpoint --> CheckBestModel{Is Best Model?}
+    
+    CheckBestModel --> |Yes| SaveBestModel[Save Best Model]
+    CheckBestModel --> |No| IncrementPatience[Increment Patience Counter]
+    SaveBestModel --> ResetPatience[Reset Patience Counter]
+    
+    ResetPatience --> CheckEpochEnd{More Epochs?}
+    IncrementPatience --> CheckEarlyStop{Early Stopping?}
+    
+    CheckEarlyStop --> |Yes| TestEvaluation[Evaluation on Test Set]
+    CheckEarlyStop --> |No| CheckEpochEnd
+    
+    CheckEpochEnd --> |Yes| TrainingLoop
+    CheckEpochEnd --> |No| TestEvaluation
+    
+    TestEvaluation --> LoadBestModel[Load Best Model]
+    LoadBestModel --> ComputeTestLoss[Compute Test Loss]
+    ComputeTestLoss --> BuildConfusionMatrix[Build Confusion Matrix]
+    BuildConfusionMatrix --> CreateSummary[Create Experiment Summary]
+    CreateSummary --> CloseWriter[Close TensorBoard Writer]
+    CloseWriter --> FinalLogging[Final Logging]
+    FinalLogging --> End([End])
+```
