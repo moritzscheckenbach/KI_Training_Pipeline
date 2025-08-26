@@ -1,7 +1,7 @@
 import os
 import xml.etree.ElementTree as ET
 
-import torch                # Optional: skip "difficult" objectsfrom PIL import Image
+import torch  # Optional: skip "difficult" objectsfrom PIL import Image
 from torch.utils.data import Dataset
 from torchvision.tv_tensors import BoundingBoxes
 
@@ -55,7 +55,7 @@ class PascalDataset(Dataset):
                 name = obj.findtext("name")
                 if name is None:
                     continue
-                # Optional: „difficult“ überspringen
+                # Optional: „difficult“ flag
                 difficult = obj.findtext("difficult")
                 if difficult is not None and difficult.strip() == "1":
                     continue

@@ -296,9 +296,9 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
 
     logger.info(f"📊 Loading {dataset_type} dataset (auto_split={auto_split})")
 
-    # ---------- HILFSFUNKTIONEN ----------
+    # ---------- HELPER FUNCTIONS ----------
     def _build_full_dataset(transform, img_id_start):
-        """Erzeugt EIN komplettes Dataset-Objekt (ohne Split)."""
+        """Build a full dataset from the single folder for auto-splitting."""
         if dataset_type == "Type_COCO":
             if auto_split:
                 root = f"{dataset_root}dataset/"
@@ -413,8 +413,6 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     g = torch.Generator()
     g.manual_seed(seed)
 
-    # We draw the indices ONCE, so all three datasets use identical splits.
-    # Variante: random_split auf ein Dummy-Index-Array, um die Indizes zu erhalten.
     all_indices = torch.arange(n)
     idx_train, idx_val_test = torch.utils.data.random_split(all_indices, [l_tr, n - l_tr], generator=g)
     g2 = torch.Generator()
