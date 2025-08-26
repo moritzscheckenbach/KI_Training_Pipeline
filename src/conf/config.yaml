@@ -1,6 +1,6 @@
 training:
   epochs: 3
-  batch_size: 4
+  batch_size: 10
   learning_rate: 0.001
   early_stopping_patience: 10
   random_seed: 42
@@ -41,6 +41,11 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/object_detection/Type_COCO/Duckiebots_preprocessed/"
+  root: "datasets/object_detection/Type_COCO/Duckiebots_nosplit/"
   type: "Type_COCO"
   num_classes: 4
+  autosplit:
+    enabled: true
+    train_ratio: 0.70
+    val_ratio: 0.15
+    test_ratio: 0.15

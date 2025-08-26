@@ -137,6 +137,34 @@ if not dataset_options:
 else:
     dataset = st.selectbox("Dataset", dataset_options)
 
+# Dataset Split Configuration
+st.markdown("**Dataset Split Konfiguration**")
+split_mode_options = ["Ja", "Nein"]
+split_mode = st.radio("Datensatz bereits in train/valid/test gesplittet?", split_mode_options, horizontal=True)
+
+# Default split ratios
+train_ratio = 0.70
+val_ratio = 0.15
+test_ratio = 0.15
+
+if split_mode == "Nein":
+    st.markdown("**Split Verhältnisse definieren**")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        train_ratio = st.number_input("Train Ratio", min_value=0.0, max_value=1.0, value=0.70, format="%.2f")
+    with col2:
+        val_ratio = st.number_input("Val Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
+    with col3:
+        test_ratio = st.number_input("Test Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
+    
+    # Validation: Check if sum equals 1
+    total_ratio = train_ratio + val_ratio + test_ratio
+    if abs(total_ratio - 1.0) > 0.001:  # Small tolerance for floating point errors
+        st.error(f"⚠️ Die Summe der Verhältnisse muss 1.0 ergeben! Aktuell: {total_ratio:.3f}")
+    else:
+        st.success(f"✅ Split Verhältnisse korrekt: {total_ratio:.3f}")
+
 # =========================
 # Augmentation Selection
 # =========================
@@ -325,7 +353,17 @@ config = {
             },
         },
     },
-    "dataset": {"root": f"datasets/{task}/{dataset}/" if dataset else "", "type": dataset_type, "num_classes": num_classes},
+    "dataset": {
+        "root": f"datasets/{task}/{dataset}/" if dataset else "", 
+        "type": dataset_type, 
+        "num_classes": num_classes,
+        "autosplit": {
+            "enabled": not split_mode == "Ja",
+            "train_ratio": float(train_ratio),
+            "val_ratio": float(val_ratio),
+            "test_ratio": float(test_ratio)
+        }
+    },
 }
 
 # =========================

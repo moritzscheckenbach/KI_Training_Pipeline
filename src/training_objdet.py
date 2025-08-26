@@ -2,6 +2,7 @@ import gc
 import importlib
 import os
 import shutil
+import math
 from datetime import datetime
 from math import sqrt
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,6 +18,7 @@ from loguru import logger
 from omegaconf import OmegaConf
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
+from torch.utils.data import Subset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.ops import box_convert
@@ -277,54 +279,160 @@ def setup_transforms(cfg: AIPipelineConfig, model_architecture):
     return v2_train_tf, v2_eval_tf
 
 
+
 def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     """
-    Load datasets based on configuration
+    Lädt Datasets je nach Konfiguration.
+    - Wenn cfg.dataset.autosplit.enabled == False: erwartet Ordnerstruktur train/ valid/ test/ (wie bisher).
+    - Wenn cfg.dataset.autosplit.enabled == True : erwartet EINEN Ordner und splittet in-memory in Train/Val/Test.
+
+    Erwartete zusätzliche Felder in cfg.dataset bei auto_split=True:
+        cfg.dataset.split.train_ratio (float, default 0.7)
+        cfg.dataset.split.val_ratio   (float, default 0.15)
+        cfg.dataset.split.test_ratio  (float, default 0.15)
+        cfg.training.random_seed        (int,   default 42)
     """
     dataset_root = cfg.dataset.root
     dataset_type = cfg.dataset.type
-    debug_mode = cfg.training.debug_mode
+    debug_mode   = cfg.training.debug_mode
+    auto_split   = cfg.dataset.autosplit.enabled
 
-    logger.info(f"📊 Loading {dataset_type} dataset from: {dataset_root}")
+    logger.info(f"📊 Loading {dataset_type} dataset (auto_split={auto_split})")
 
-    # TYPE COCO Dataset
-    if dataset_type == "Type_COCO":
-        train_dataset = CocoDataset(
-            root=f"{dataset_root}train/",
-            annFile=f"{dataset_root}train/_annotations.coco.json",
-            transforms=v2_train_tf,
-            img_id_start=1000000,
-            debug_mode=debug_mode,
-        )
-        val_dataset = CocoDataset(
-            root=f"{dataset_root}valid/",
-            annFile=f"{dataset_root}valid/_annotations.coco.json",
-            transforms=v2_eval_tf,
-            img_id_start=2000000,
-            debug_mode=debug_mode,
-        )
-        test_dataset = CocoDataset(
-            root=f"{dataset_root}test/",
-            annFile=f"{dataset_root}test/_annotations.coco.json",
-            transforms=v2_eval_tf,
-            img_id_start=3000000,
-            debug_mode=debug_mode,
-        )
+    # ---------- HILFSFUNKTIONEN ----------
+    def _build_full_dataset(transform, img_id_start):
+        """Erzeugt EIN komplettes Dataset-Objekt (ohne Split)."""
+        if dataset_type == "Type_COCO":
+            if auto_split:
+                root = f"{dataset_root}dataset/"
+                ann  = f"{dataset_root}dataset/_annotations.coco.json"
+            else:
+                # Klassisches Drei-Ordner-Setup
+                root = f"{dataset_root}train/"
+                ann  = f"{dataset_root}train/_annotations.coco.json"
 
-    # TYPE YOLO Dataset
-    if dataset_type == "Type_YOLO":
-        train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
-        val_dataset = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
-        test_dataset = YoloDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf)
+            return CocoDataset(
+                root=root,
+                annFile=ann,
+                transforms=transform,
+                img_id_start=img_id_start,
+                debug_mode=debug_mode,
+            )
 
-    # TYPE Pascal Dataset
-    if dataset_type == "Type_Pascal_V10":
-        train_dataset = PascalDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
-        val_dataset = PascalDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
-        test_dataset = PascalDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf)
+        elif dataset_type == "Type_YOLO":
+            if auto_split:
+                images = f"{dataset_root}dataset/images/"
+                labels = f"{dataset_root}dataset/labels/"
+            else:
+                images = f"{dataset_root}train/images/"
+                labels = f"{dataset_root}train/labels/"
 
-    logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+            return YoloDataset(images_dir=images, labels_dir=labels, transform=transform)
 
+        elif dataset_type == "Type_Pascal_V10":
+            if auto_split:
+                images = f"{dataset_root}dataset/images/"
+                labels = f"{dataset_root}dataset/labels/"
+            else:
+                images = f"{dataset_root}train/images/"
+                labels = f"{dataset_root}train/labels/"
+
+            return PascalDataset(images_dir=images, labels_dir=labels, transform=transform)
+
+        else:
+            raise ValueError(f"Unbekannter dataset_type: {dataset_type}")
+
+    def _split_lengths(n, ratios):
+        """Sichere, dass Summe der Längen == n (Korrektur von Rundungsfehlern)."""
+        tr, va, te = ratios
+        l_tr = int(math.floor(n * tr))
+        l_va = int(math.floor(n * va))
+        l_te = n - l_tr - l_va
+        return l_tr, l_va, l_te
+
+    # ---------- PFAD A: KEIN Auto-Split (wie bisher) ----------
+    if not auto_split:
+        if dataset_type == "Type_COCO":
+            train_dataset = CocoDataset(
+                root=f"{dataset_root}train/",
+                annFile=f"{dataset_root}train/_annotations.coco.json",
+                transforms=v2_train_tf,
+                img_id_start=1000000,
+                debug_mode=debug_mode,
+            )
+            val_dataset = CocoDataset(
+                root=f"{dataset_root}valid/",
+                annFile=f"{dataset_root}valid/_annotations.coco.json",
+                transforms=v2_eval_tf,
+                img_id_start=2000000,
+                debug_mode=debug_mode,
+            )
+            test_dataset = CocoDataset(
+                root=f"{dataset_root}test/",
+                annFile=f"{dataset_root}test/_annotations.coco.json",
+                transforms=v2_eval_tf,
+                img_id_start=3000000,
+                debug_mode=debug_mode,
+            )
+
+        elif dataset_type == "Type_YOLO":
+            train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
+            val_dataset   = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
+            test_dataset  = YoloDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf)
+
+        elif dataset_type == "Type_Pascal_V10":
+            train_dataset = PascalDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
+            val_dataset   = PascalDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
+            test_dataset  = PascalDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf)
+
+        else:
+            raise ValueError(f"Unbekannter dataset_type: {dataset_type}")
+
+        logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
+        return train_dataset, val_dataset, test_dataset
+
+    # ---------- PFAD B: Auto-Split aus EINEM Ordner ----------
+    # Parameter
+    tr_ratio = getattr(getattr(cfg.dataset, "split", {}), "train_ratio", 0.70)
+    va_ratio = getattr(getattr(cfg.dataset, "split", {}), "val_ratio",   0.15)
+    te_ratio = getattr(getattr(cfg.dataset, "split", {}), "test_ratio",  0.15)
+    seed    = cfg.training.random_seed
+
+    if not math.isclose(tr_ratio + va_ratio + te_ratio, 1.0, rel_tol=1e-6):
+        raise ValueError(f"Split-Ratios müssen 1.0 ergeben (aktuell: {tr_ratio+va_ratio+te_ratio}).")
+
+    # Drei *vollständige* Dataset-Objekte mit unterschiedlichen Transforms
+    # (so behalten wir die Kompatibilität zu Deinen Pipelines, z.B. img_id_start).
+    full_train_like = _build_full_dataset(transform=v2_train_tf, img_id_start=1000000)
+    full_val_like   = _build_full_dataset(transform=v2_eval_tf,  img_id_start=2000000)
+    full_test_like  = _build_full_dataset(transform=v2_eval_tf,  img_id_start=3000000)
+
+    n = len(full_train_like)
+    if n == 0:
+        raise RuntimeError("Leerer Datensatz im Auto-Split-Modus.")
+
+    l_tr, l_va, l_te = _split_lengths(n, (tr_ratio, va_ratio, te_ratio))
+
+    g = torch.Generator()
+    g.manual_seed(seed)
+
+    # Wir ziehen die Indizes EINMAL, damit alle drei Datasets identische Splits nutzen.
+    # Variante: random_split auf ein Dummy-Index-Array, um die Indizes zu erhalten.
+    all_indices = torch.arange(n)
+    idx_train, idx_val_test = torch.utils.data.random_split(all_indices, [l_tr, n - l_tr], generator=g)
+    g2 = torch.Generator()
+    g2.manual_seed(seed + 1)
+    idx_val, idx_test = torch.utils.data.random_split(idx_val_test, [l_va, l_te], generator=g2)
+
+    # Subsets bilden (unterschiedliche Transforms sind in den *full_* Datasets bereits gesetzt)
+    train_dataset = Subset(full_train_like, indices=idx_train.indices if hasattr(idx_train, "indices") else idx_train)
+    val_dataset   = Subset(full_val_like,   indices=idx_val.indices   if hasattr(idx_val, "indices")   else idx_val)
+    test_dataset  = Subset(full_test_like,  indices=idx_test.indices  if hasattr(idx_test, "indices")  else idx_test)
+
+    logger.info(
+        f"📈 Auto-split completed (seed={seed}) - "
+        f"Total: {n}, Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}"
+    )
     return train_dataset, val_dataset, test_dataset
 
 
