@@ -8,7 +8,7 @@ import torch.nn.functional as F
 class SimpleCNN(nn.Module):
     def __init__(self, num_classes):
         super(SimpleCNN, self).__init__()
-        self.input_size = (224, 224)  # Standardgröße für viele Modelle
+        self.input_size = (224, 224)  # Standard size for many models
         
         self.features = nn.Sequential(
             nn.Conv2d(3, 32, kernel_size=3, padding=1),
@@ -47,14 +47,14 @@ class SimpleCNN(nn.Module):
 
     def get_input_size(self):
         """
-        Gibt die erwartete Eingabegröße (C, H, W) zurück.
-        Wir nutzen hier 224x224, weil viele Transforms darauf optimiert sind.
+        Returns the expected input size (C, H, W).
+        We use 224x224 here because many transforms are optimized for it.
         """
         return (self.input_size[0], self.input_size[1])
 
 
 def build_model(num_classes):
     """
-    Baut und gibt das Klassifikationsmodell zurück.
+    Builds and returns the classification model.
     """
     return SimpleCNN(num_classes)

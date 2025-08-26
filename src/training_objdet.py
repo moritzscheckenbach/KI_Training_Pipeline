@@ -413,7 +413,7 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     g = torch.Generator()
     g.manual_seed(seed)
 
-    # Wir ziehen die Indizes EINMAL, damit alle drei Datasets identische Splits nutzen.
+    # We draw the indices ONCE, so all three datasets use identical splits.
     # Variante: random_split auf ein Dummy-Index-Array, um die Indizes zu erhalten.
     all_indices = torch.arange(n)
     idx_train, idx_val_test = torch.utils.data.random_split(all_indices, [l_tr, n - l_tr], generator=g)
@@ -421,7 +421,7 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     g2.manual_seed(seed + 1)
     idx_val, idx_test = torch.utils.data.random_split(idx_val_test, [l_va, l_te], generator=g2)
 
-    # Subsets bilden (unterschiedliche Transforms sind in den *full_* Datasets bereits gesetzt)
+    # Form subsets (different transforms are already set in the *full_* datasets)
     train_dataset = Subset(full_train_like, indices=idx_train.indices if hasattr(idx_train, "indices") else idx_train)
     val_dataset = Subset(full_val_like, indices=idx_val.indices if hasattr(idx_val, "indices") else idx_val)
     test_dataset = Subset(full_test_like, indices=idx_test.indices if hasattr(idx_test, "indices") else idx_test)
@@ -795,7 +795,7 @@ def create_experiment_summary(cfg: AIPipelineConfig, experiment_name, model_name
 # HELPER FUNCTIONS
 # =============================================================================
 def collate_fn(batch):
-    """Detection-collate: gebe Listen zurück, kompatibel mit variabler Boxanzahl."""
+    """Detection-collate: returns lists, compatible with variable number of boxes."""
     images = []
     targets = []
     for img, target in batch:
@@ -938,7 +938,7 @@ def confusion_matrix_detection(preds, gts, num_classes: int, iou_thr: float = 0.
     """
     Einfache CM für Detection:
     - Greedy 1:1 Matching per IOU
-    - Matrix: GT x Pred; rechte Randspalte=FN je GT-Klasse; untere Randzeile=FP je Pred-Klasse
+    - Matrix: GT x Pred; right margin column=FN per GT class; bottom margin row=FP per Pred class
     """
     cm = np.zeros((num_classes, num_classes), dtype=np.int64)
     fn_per_class = np.zeros(num_classes, dtype=np.int64)
@@ -1043,7 +1043,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             coco_images.append({"id": image_id, "width": int(W), "height": int(H)})
 
             # ---------- Ground Truth (XYWH bereits gegeben) ----------
-            gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)  # erwartet XYWH
+            gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)  # expects XYWH
             gt_xywh = gt_boxes.cpu().numpy()
             gt_labels = torch.as_tensor(target["labels"]).cpu().numpy().astype(int)
 

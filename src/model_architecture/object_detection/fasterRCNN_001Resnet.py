@@ -19,11 +19,11 @@ def get_model(num_classes: int, pretrained: bool = True):
     return model
 
 
-# ---- Funktionen, die dein Loader erwartet ----
+# ---- Functions expected by your loader ----
 
 
 def build_model(num_classes: int):
-    # "Fresh model" ohne Pretrained (wie in deinem try/else-Zweig)
+    # "Fresh model" without Pretrained (as in your try/else branch)
     return get_model(num_classes=num_classes, pretrained=False)
 
 

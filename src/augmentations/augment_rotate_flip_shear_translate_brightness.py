@@ -8,11 +8,11 @@ def augment():
     Minimal v2-Pipeline, bbox-aware.
     - ToImage: PIL -> tv_tensors.Image (CHW)
     - ToDtype: float32 [0,1]
-    - Leichte Augmentierungen (kompatibel zu BBox-Tracking)
-    - SanitizeBoundingBoxes: entfernt/clippt invalide Boxen
+    - Light augmentations (compatible with BBox tracking)
+    - SanitizeBoundingBoxes: removes/clips invalid boxes
 
-    Resize wird absichtlich NICHT hier gesetzt, damit die Modell-Inputgröße
-    weiterhin im Dataset/Training bestimmt werden kann.
+    Resize is intentionally NOT set here, so that the model input size
+    can still be determined in the Dataset/Training.
     """
 
     return v2.Compose(
