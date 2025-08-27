@@ -155,7 +155,7 @@ To generate your own Augmentation just copy the template file, add your augmenta
 ```
 src/augmentations/{YourAugmentationFile}
 ```
-
+#### Augmentation Template
 ```
 import torch
 from torchvision.transforms import v2
