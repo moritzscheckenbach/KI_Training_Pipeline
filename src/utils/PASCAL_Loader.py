@@ -1,8 +1,7 @@
 import os
 import xml.etree.ElementTree as ET
 
-import torch
-from PIL import Image
+import torch  # Optional: skip "difficult" objectsfrom PIL import Image
 from torch.utils.data import Dataset
 from torchvision.tv_tensors import BoundingBoxes
 
@@ -17,11 +16,11 @@ def xyxy_to_xywh(box_xyxy):
 
 class PascalDataset(Dataset):
     """
-    Liest Pascal VOC XML-Labels (XYXY in Pixeln) und gibt COCO-XYWH (Pixel) zurück.
-    Erwartet:
+    Reads Pascal VOC XML Labels (XYXY in pixels) and returns COCO-XYWH (pixels).
+    Expects:
         images_dir: JPG/PNG
-        labels_dir: XML mit gleichem Basenamen
-    class_to_id: dict wie {"person": 1, "car": 2, ...}
+        labels_dir: XML with the same basename
+    class_to_id: dict like {"person": 1, "car": 2, ...}
     """
 
     def __init__(self, images_dir, labels_dir, class_to_id, transform=None, clip_to_image=True):
@@ -32,7 +31,7 @@ class PascalDataset(Dataset):
         self.clip_to_image = clip_to_image
 
         self.image_files = [f for f in os.listdir(images_dir) if f.lower().endswith((".jpg", ".jpeg", ".png"))]
-        self.image_files.sort()  # stabile Reihenfolge
+        self.image_files.sort()  # stable order
 
     def __len__(self):
         return len(self.image_files)
@@ -56,7 +55,7 @@ class PascalDataset(Dataset):
                 name = obj.findtext("name")
                 if name is None:
                     continue
-                # Optional: „difficult“ überspringen
+                # Optional: „difficult“ flag
                 difficult = obj.findtext("difficult")
                 if difficult is not None and difficult.strip() == "1":
                     continue
@@ -65,7 +64,7 @@ class PascalDataset(Dataset):
                 if bnd is None:
                     continue
 
-                # VOC ist 1-basiert in vielen Datasets; hier robust float-parsen
+                # VOC is 1-based in many datasets; robust float parsing here
                 def f(tag):
                     v = bnd.findtext(tag)
                     return float(v) if v is not None else None
@@ -74,7 +73,7 @@ class PascalDataset(Dataset):
                 if None in (xmin, ymin, xmax, ymax):
                     continue
 
-                # In Pixel bleiben; optional clamping
+                # Stay in pixels; optional clamping
                 if self.clip_to_image:
                     xmin = max(0.0, min(xmin, W - 1.0))
                     ymin = max(0.0, min(ymin, H - 1.0))
@@ -87,9 +86,9 @@ class PascalDataset(Dataset):
                 box_xywh = xyxy_to_xywh([xmin, ymin, xmax, ymax])
                 boxes_xywh.append(box_xywh)
 
-                # Klassen-ID aus Mapping
+                # Class ID from mapping
                 if name not in self.class_to_id:
-                    # Unbekannte Klassen optional überspringen
+                    # Optionally skip unknown classes
                     continue
                 labels.append(int(self.class_to_id[name]))
 
@@ -97,7 +96,7 @@ class PascalDataset(Dataset):
         labels = torch.tensor(labels, dtype=torch.int64)
         target = {"boxes": boxes, "labels": labels, "image_id": torch.tensor([idx])}
 
-        # Transforms (v2 bevorzugt: (img, target))
+        # Transforms (v2 preferred: (img, target))
         if self.transform:
             try:
                 image, target = self.transform(image, target)

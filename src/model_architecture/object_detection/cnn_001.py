@@ -41,7 +41,7 @@ class SimpleCNN(nn.Module):
         )
 
         # Output layers: für jede Grid-Zelle (13x13)
-        # Pro Zelle: 1 Objekt mit Klasse + Bounding Box + Confidence
+        # Per cell: 1 object with class + bounding box + confidence
         self.output_channels = num_classes + 5  # classes + x,y,w,h + confidence
 
         self.detection_head = nn.Conv2d(512, self.output_channels, kernel_size=1)
@@ -82,7 +82,7 @@ class SimpleCNN(nn.Module):
             pred = detection_output[i]  # [output_channels, 13, 13]
 
             if len(target["labels"]) == 0:
-                # Keine Objekte - nur Confidence Loss (alles sollte 0 sein)
+                # No objects - only confidence loss (everything should be 0)
                 conf_pred = torch.sigmoid(pred[-1])  # Confidence channel
                 conf_target = torch.zeros_like(conf_pred)
                 total_conf_loss += F.mse_loss(conf_pred, conf_target)

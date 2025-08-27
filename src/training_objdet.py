@@ -1,11 +1,11 @@
 import gc
 import importlib
+import math
 import os
 import shutil
-import math
 from datetime import datetime
 from math import sqrt
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List
 
 import hydra
 import matplotlib.pyplot as plt
@@ -18,11 +18,8 @@ from loguru import logger
 from omegaconf import OmegaConf
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
-from torch.utils.data import Subset
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 from torch.utils.tensorboard import SummaryWriter
-from torchvision.ops import box_convert
-from torchvision.tv_tensors import BoundingBoxes as TVBoundingBoxes
 from torchvision.transforms import v2 as T
 from torchvision.utils import draw_bounding_boxes
 from tqdm import tqdm
@@ -280,14 +277,13 @@ def setup_transforms(cfg: AIPipelineConfig, model_architecture):
     return v2_train_tf, v2_eval_tf
 
 
-
 def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     """
-    Lädt Datasets je nach Konfiguration.
-    - Wenn cfg.dataset.autosplit.enabled == False: erwartet Ordnerstruktur train/ valid/ test/ (wie bisher).
-    - Wenn cfg.dataset.autosplit.enabled == True : erwartet EINEN Ordner und splittet in-memory in Train/Val/Test.
+    Loads datasets according to configuration.
+    - If cfg.dataset.autosplit.enabled == False: expects folder structure train/ valid/ test/ (as before).
+    - If cfg.dataset.autosplit.enabled == True: expects ONE folder and splits in-memory into Train/Val/Test.
 
-    Erwartete zusätzliche Felder in cfg.dataset bei auto_split=True:
+    Expected additional fields in cfg.dataset for auto_split=True:
         cfg.dataset.split.train_ratio (float, default 0.7)
         cfg.dataset.split.val_ratio   (float, default 0.15)
         cfg.dataset.split.test_ratio  (float, default 0.15)
@@ -295,22 +291,22 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
     """
     dataset_root = cfg.dataset.root
     dataset_type = cfg.dataset.type
-    debug_mode   = cfg.training.debug_mode
-    auto_split   = cfg.dataset.autosplit.enabled
+    debug_mode = cfg.training.debug_mode
+    auto_split = cfg.dataset.autosplit.enabled
 
     logger.info(f"📊 Loading {dataset_type} dataset (auto_split={auto_split})")
 
-    # ---------- HILFSFUNKTIONEN ----------
+    # ---------- HELPER FUNCTIONS ----------
     def _build_full_dataset(transform, img_id_start):
-        """Erzeugt EIN komplettes Dataset-Objekt (ohne Split)."""
+        """Build a full dataset from the single folder for auto-splitting."""
         if dataset_type == "Type_COCO":
             if auto_split:
                 root = f"{dataset_root}dataset/"
-                ann  = f"{dataset_root}dataset/_annotations.coco.json"
+                ann = f"{dataset_root}dataset/_annotations.coco.json"
             else:
-                # Klassisches Drei-Ordner-Setup
+                # Classic three-folder setup
                 root = f"{dataset_root}train/"
-                ann  = f"{dataset_root}train/_annotations.coco.json"
+                ann = f"{dataset_root}train/_annotations.coco.json"
 
             return CocoDataset(
                 root=root,
@@ -341,17 +337,17 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
             return PascalDataset(images_dir=images, labels_dir=labels, transform=transform)
 
         else:
-            raise ValueError(f"Unbekannter dataset_type: {dataset_type}")
+            raise ValueError(f"Unknown dataset_type: {dataset_type}")
 
     def _split_lengths(n, ratios):
-        """Sichere, dass Summe der Längen == n (Korrektur von Rundungsfehlern)."""
+        """Ensure that the sum of lengths equals n (correction of rounding errors)."""
         tr, va, te = ratios
         l_tr = int(math.floor(n * tr))
         l_va = int(math.floor(n * va))
         l_te = n - l_tr - l_va
         return l_tr, l_va, l_te
 
-    # ---------- PFAD A: KEIN Auto-Split (wie bisher) ----------
+    # ---------- PATH A: NO Auto-Split (as before) ----------
     if not auto_split:
         if dataset_type == "Type_COCO":
             train_dataset = CocoDataset(
@@ -383,57 +379,52 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
 
         elif dataset_type == "Type_Pascal_V10":
             train_dataset = PascalDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
-            val_dataset   = PascalDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
-            test_dataset  = PascalDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf)
+            val_dataset = PascalDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
+            test_dataset = PascalDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf)
 
         else:
-            raise ValueError(f"Unbekannter dataset_type: {dataset_type}")
+            raise ValueError(f"Unknown dataset_type: {dataset_type}")
 
         logger.info(f"📈 Dataset loaded - Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
         return train_dataset, val_dataset, test_dataset
 
-    # ---------- PFAD B: Auto-Split aus EINEM Ordner ----------
-    # Parameter
+    # ---------- PATH B: Auto-Split from ONE folder ----------
+    # Parameters
     tr_ratio = getattr(getattr(cfg.dataset, "split", {}), "train_ratio", 0.70)
-    va_ratio = getattr(getattr(cfg.dataset, "split", {}), "val_ratio",   0.15)
-    te_ratio = getattr(getattr(cfg.dataset, "split", {}), "test_ratio",  0.15)
-    seed    = cfg.training.random_seed
+    va_ratio = getattr(getattr(cfg.dataset, "split", {}), "val_ratio", 0.15)
+    te_ratio = getattr(getattr(cfg.dataset, "split", {}), "test_ratio", 0.15)
+    seed = cfg.training.random_seed
 
     if not math.isclose(tr_ratio + va_ratio + te_ratio, 1.0, rel_tol=1e-6):
-        raise ValueError(f"Split-Ratios müssen 1.0 ergeben (aktuell: {tr_ratio+va_ratio+te_ratio}).")
+        raise ValueError(f"Split ratios must sum to 1.0 (currently: {tr_ratio+va_ratio+te_ratio}).")
 
-    # Drei *vollständige* Dataset-Objekte mit unterschiedlichen Transforms
-    # (so behalten wir die Kompatibilität zu Deinen Pipelines, z.B. img_id_start).
+    # Three *complete* Dataset objects with different transforms
+    # (this maintains compatibility with your pipelines, e.g., img_id_start).
     full_train_like = _build_full_dataset(transform=v2_train_tf, img_id_start=1000000)
-    full_val_like   = _build_full_dataset(transform=v2_eval_tf,  img_id_start=2000000)
-    full_test_like  = _build_full_dataset(transform=v2_eval_tf,  img_id_start=3000000)
+    full_val_like = _build_full_dataset(transform=v2_eval_tf, img_id_start=2000000)
+    full_test_like = _build_full_dataset(transform=v2_eval_tf, img_id_start=3000000)
 
     n = len(full_train_like)
     if n == 0:
-        raise RuntimeError("Leerer Datensatz im Auto-Split-Modus.")
+        raise RuntimeError("Empty dataset in Auto-Split mode.")
 
     l_tr, l_va, l_te = _split_lengths(n, (tr_ratio, va_ratio, te_ratio))
 
     g = torch.Generator()
     g.manual_seed(seed)
 
-    # Wir ziehen die Indizes EINMAL, damit alle drei Datasets identische Splits nutzen.
-    # Variante: random_split auf ein Dummy-Index-Array, um die Indizes zu erhalten.
     all_indices = torch.arange(n)
     idx_train, idx_val_test = torch.utils.data.random_split(all_indices, [l_tr, n - l_tr], generator=g)
     g2 = torch.Generator()
     g2.manual_seed(seed + 1)
     idx_val, idx_test = torch.utils.data.random_split(idx_val_test, [l_va, l_te], generator=g2)
 
-    # Subsets bilden (unterschiedliche Transforms sind in den *full_* Datasets bereits gesetzt)
+    # Form subsets (different transforms are already set in the *full_* datasets)
     train_dataset = Subset(full_train_like, indices=idx_train.indices if hasattr(idx_train, "indices") else idx_train)
-    val_dataset   = Subset(full_val_like,   indices=idx_val.indices   if hasattr(idx_val, "indices")   else idx_val)
-    test_dataset  = Subset(full_test_like,  indices=idx_test.indices  if hasattr(idx_test, "indices")  else idx_test)
+    val_dataset = Subset(full_val_like, indices=idx_val.indices if hasattr(idx_val, "indices") else idx_val)
+    test_dataset = Subset(full_test_like, indices=idx_test.indices if hasattr(idx_test, "indices") else idx_test)
 
-    logger.info(
-        f"📈 Auto-split completed (seed={seed}) - "
-        f"Total: {n}, Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}"
-    )
+    logger.info(f"📈 Auto-split completed (seed={seed}) - " f"Total: {n}, Train: {len(train_dataset)}, Val: {len(val_dataset)}, Test: {len(test_dataset)}")
     return train_dataset, val_dataset, test_dataset
 
 
@@ -480,7 +471,7 @@ def setup_optimizer(cfg: AIPipelineConfig, model):
         head_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.head_lr_multiplier
         param_groups = []
 
-        # Backbone dynamisch aus Config
+        # Backbone dynamically from Config
         backbone_name = getattr(cfg.model.transfer_learning, "backbone_name", None)
         backbone_params = set()
         if backbone_name and hasattr(model.base_model, backbone_name):
@@ -488,7 +479,7 @@ def setup_optimizer(cfg: AIPipelineConfig, model):
             param_groups.append({"params": backbone.parameters(), "lr": backbone_lr, "name": backbone_name})
             backbone_params = set(backbone.parameters())
 
-        # Head dynamisch aus Config
+        # Head dynamically from Config
         head_name = getattr(cfg.model.transfer_learning, "head_name", None)
         head_params = set()
         if head_name and hasattr(model.base_model, head_name):
@@ -802,7 +793,7 @@ def create_experiment_summary(cfg: AIPipelineConfig, experiment_name, model_name
 # HELPER FUNCTIONS
 # =============================================================================
 def collate_fn(batch):
-    """Detection-collate: gebe Listen zurück, kompatibel mit variabler Boxanzahl."""
+    """Detection-collate: returns lists, compatible with variable number of boxes."""
     images = []
     targets = []
     for img, target in batch:
@@ -945,7 +936,7 @@ def confusion_matrix_detection(preds, gts, num_classes: int, iou_thr: float = 0.
     """
     Einfache CM für Detection:
     - Greedy 1:1 Matching per IOU
-    - Matrix: GT x Pred; rechte Randspalte=FN je GT-Klasse; untere Randzeile=FP je Pred-Klasse
+    - Matrix: GT x Pred; right margin column=FN per GT class; bottom margin row=FP per Pred class
     """
     cm = np.zeros((num_classes, num_classes), dtype=np.int64)
     fn_per_class = np.zeros(num_classes, dtype=np.int64)
@@ -1050,15 +1041,15 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
             coco_images.append({"id": image_id, "width": int(W), "height": int(H)})
 
             # ---------- Ground Truth (XYWH bereits gegeben) ----------
-            gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)  # erwartet XYWH
+            gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)  # expects XYWH
             gt_xywh = gt_boxes.cpu().numpy()
             gt_labels = torch.as_tensor(target["labels"]).cpu().numpy().astype(int)
 
-            # optionale Felder robust auslesen
+            # optional fields read robustly
             if "area" in target and target["area"] is not None:
                 gt_area = torch.as_tensor(target["area"], dtype=torch.float32).cpu().numpy()
             else:
-                # Falls keine Area gegeben: aus w*h berechnen
+                # If no area provided: calculate from w*h
                 gt_area = (gt_boxes[:, 2] * gt_boxes[:, 3]).cpu().numpy()
 
             if "iscrowd" in target and target["iscrowd"] is not None:
@@ -1240,10 +1231,10 @@ def _check_img_range(img, img_id="unknown"):
         # PIL Image-Verarbeitung
         elif hasattr(img, "getextrema"):  # PIL Image
             extrema = img.getextrema()
-            if isinstance(extrema[0], tuple):  # RGB oder anderer Mehrkanal
+            if isinstance(extrema[0], tuple):  # RGB or other multi-channel
                 min_val = min(ext[0] for ext in extrema)
                 max_val = max(ext[1] for ext in extrema)
-            else:  # Graustufen
+            else:  # Grayscale
                 min_val = extrema[0]
                 max_val = extrema[1]
 

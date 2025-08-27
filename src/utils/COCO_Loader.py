@@ -17,7 +17,7 @@ class CocoDataset(Dataset):
     def __getitem__(self, idx):
         img, anns = self.ds[idx]  # anns: List[dict]
 
-        # Einheitlich RGB sicherstellen (deckt RGBA/LA/CMYK/16-bit Fälle ab)
+        # Ensure uniform RGB (covers RGBA/LA/CMYK/16-bit cases)
         if hasattr(img, "mode") and img.mode != "RGB":
             img = img.convert("RGB")
 

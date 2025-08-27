@@ -25,12 +25,12 @@ class TransferLearningModel(nn.Module):
         self._apply_transfer_learning_strategy()
 
     def _load_pretrained_model(self):
-        """Lädt das vortrainierte Modell"""
+        """Loads the pretrained model"""
         model_path = self.cfg.model.transfer_learning.path
         model_type = self.cfg.model.type
         model_file = self.model_config.model.file
 
-        # Dynamisch das Modell-Modul laden
+        # Dynamically load the model module
         model_module = importlib.import_module(f"model_architecture.{model_type}.{model_file}")
         base_model = model_module.build_model(num_classes=self.cfg.dataset.num_classes)
 
@@ -42,7 +42,7 @@ class TransferLearningModel(nn.Module):
 
     def _apply_transfer_learning_strategy(self):
         """Wendet die Transfer Learning Strategie an"""
-        # Wenn freezing explizit deaktiviert ist, benutze 'unfreeze_all' als Strategy
+        # If freezing is explicitly disabled, use 'unfreeze_all' as strategy
         if self.cfg.model.transfer_learning.freezing.enabled is False:
             strategy = "unfreeze_all"
         else:

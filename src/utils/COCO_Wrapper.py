@@ -5,13 +5,13 @@ from torchvision.tv_tensors import BoundingBoxes
 
 
 class COCOWrapper:
-    """Wrappt image+Target für v2, konvertiert COCO-Listen/Dicts nach BoundingBoxes und zurück (XYWH),
-    ohne Zusatz-Keys (z. B. image_id) zu verlieren.
+    """Wraps image+Target for v2, converts COCO lists/dicts to BoundingBoxes and back (XYWH),
+    without losing additional keys (e.g., image_id).
     """
 
     def __init__(self, base_tf, inputsize_x, inputsize_y, debug_enabled=False):
-        # HINWEIS: Resize übernimmt hier unverändert (inputsize_x, inputsize_y),
-        # wie in deinem Originalcode.
+        # NOTE: Resize keeps (inputsize_x, inputsize_y) unchanged,
+        # as in your original code.
         self.debug_enabled = debug_enabled
         self.base_tf = T.Compose(
             [
@@ -27,14 +27,14 @@ class COCOWrapper:
         elif hasattr(img, "shape") and len(img.shape) == 3:  # Tensor: CxHxW
             _, h, w = img.shape
         else:
-            h = w = None  # wird von BoundingBoxes für einige Ops benötigt
+            h = w = None  # needed by BoundingBoxes for some operations
 
-        # Original-Target flach kopieren, um Keys nachher ggf. zu restaurieren
+        # Shallow copy of original target to restore keys later if needed
         original_target = target if isinstance(target, dict) else None
 
-        # --- Eingaben normalisieren -> Dict mit BoundingBoxes im Format XYWH ---
+        # --- Normalize inputs -> Dict with BoundingBoxes in XYWH format ---
         if isinstance(target, list):
-            # Liste aus COCO-Annots -> Minimales Dict (XYWH + labels)
+            # List of COCO annotations -> Minimal Dict (XYWH + labels)
             boxes, labels = [], []
             for ann in target:
                 bbox = ann.get("bbox")
@@ -53,7 +53,7 @@ class COCOWrapper:
             }
 
         elif isinstance(target, dict):
-            # Dict: ALLE Keys erhalten, nur boxes/labels sauber in tv_tensors packen
+            # Dict: Keep ALL keys, only package boxes/labels properly in tv_tensors
             tgt = dict(target)  # flache Kopie
             boxes = tgt.get("boxes", torch.zeros((0, 4), dtype=torch.float32))
             labels = tgt.get("labels", torch.zeros((0,), dtype=torch.int64))
@@ -66,17 +66,17 @@ class COCOWrapper:
             target = tgt
 
         else:
-            raise TypeError(f"COCOWrapper: unerwarteter target-type {type(target)}")
+            raise TypeError(f"COCOWrapper: unexpected target-type {type(target)}")
 
-        # --- Transforms anwenden ---
+        # --- Apply transforms ---
         img, target = self.base_tf(img, target)
 
-        # --- BoundingBoxes zurück in normalen Tensor (XYWH) ---
+        # --- Convert BoundingBoxes back to normal Tensor (XYWH) ---
         if isinstance(target, dict):
             bb = target.get("boxes", None)
             if isinstance(bb, BoundingBoxes):
                 boxes_t = torch.as_tensor(bb, dtype=torch.float32)
-                # Falls ein Transform das Format geändert hat, zurück auf XYWH bringen
+                # If a transform has changed the format, convert back to XYWH
                 fmt = getattr(bb, "format", None)
                 fmt_str = fmt.lower() if isinstance(fmt, str) else None
                 if fmt_str and fmt_str != "xywh":
@@ -87,13 +87,13 @@ class COCOWrapper:
             else:
                 target["boxes"] = torch.zeros((0, 4), dtype=torch.float32)
 
-            # --- Zusatz-Keys restaurieren, falls während der Transforms verloren ---
+            # --- Restore additional keys if lost during transforms ---
             if original_target is not None and isinstance(original_target, dict):
                 for k, v in original_target.items():
                     if k not in target:
                         target[k] = v
 
-            # Dtypes defensiv angleichen (ohne Logik/Geometrie zu ändern)
+            # Defensively align dtypes (without changing logic/geometry)
             if "labels" in target:
                 target["labels"] = torch.as_tensor(target["labels"], dtype=torch.int64)
             if "iscrowd" in target:
