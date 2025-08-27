@@ -1,101 +1,130 @@
-# AI_Training_Pipeline
+# AI Training Pipeline
 
 ## Contents
-Insert table of contents!!!
+- [Quick Start](#quick-start)
+
 
 ## Quick Start
+To use tha AI Pipeline you need to have the dependencies installed
 
-0. Run `package_installer.py`. It installs all necessary packages.
-1. Run `training.py`. It starts a [browser app](http://localhost:8501) for training configuration.
-2. Move the created config.yaml to folder: src>>conf
-3. Depending on the task, run `training_[task].py`
-4. Open [Tensorboard](http://127.0.0.1:16006/) for output.
+[Install dependencies](#installing-dependencies)
 
-## How to use
+To start training on already implemented models:
 
-## Pipeline Construction
+1. [Add Your Own Dataset](#add-your-own-dataset) (Optional)
+2. [Start training](#start-training)
 
-| Module | Description | Available standard options |
-| --- | --- | --- |
-| augmentations | Provides premade templates for augmentation. They are applied pre training, but do not create new datasets. | no_augments, augment_rotate_flip_shear_translate_brightness, augment_1 |
-| conf | Contains the Config.yaml for training pipeline executions. | config.yaml |
-| datasets | Contains Datasets | Cifar10, Pokemon, ImgNet, Yolo-Duckiebots-Lanes, Coco-Duckiebots-Lanes |
-| model_architecture | Contains models.  | swin_transformer, cnn, ResNet50, vision_transformer |
-| outputs | Temporary hydra files  |  |
-| trained_models | Keeps the trained models and all according files. | Tensorboard, Model with weights, config file, summary, log file |
-| training.py | Starts an app to configure the training. Sets the layout standards. |  |
-| training_class.py | Executes the training | |
 
-## training overview
+## Installing Dependencies
+All dependencies can be installed or looked up using the `package_installer.py` script located in the src folder:
+```
+# Navigate to the src folder
+cd src/
 
-| Module | Description | Available standard options |
-| --- | --- | --- |
-| 1. EXPERIMENT SETUP | Directorys and date-time setup | |
-| 2. LOGGER SETUP | Creates and saves log for experiment in folders. | |
-| 3. MODEL LOADING | Reads the selected model from the config.yaml, selects it from model_architecture folder and builds it. | |
-| 4. AUGMENTATION | Adds the specified augmentation from augments folder. | no_augments, augment_rotate_flip_shear_translate_brightness, augment_1 |
-| 5. DATASET TYPE LOADING | Selects the Type of the dataset. | Coco, Yolo |
-| 6. MODEL TO DEVICE | Starts Cuda GPU if available. | GPU, CPU |
-| 7. OPTIMIZER SETUP | Loads optimiser, learningrate and weight decay configuration. | Adam, AdamW, SGD, RMSprop, Adagrad, Adadelta |
-| 8. SCHEDULER SETUP |  |  |
-| 9. TENSORBOARD SETUP | Starts Tensorboard logging | training loss, validation loss, Precision, Recall, f1 |
-| 10. TRAINING LOOP | Does the training and validation with metrics. Saves newest model |  |
-| 11. TEST EVALUATION | Does the final Validation |  |
-| 12. EXPERIMENT SUMMARY | creates a clean .yaml file from the training process. |  |
-| 13. FINAL LOGGING | Summary of the training with the best scores and model. Displays options to procede from here. | result directory, TensorBoard, summary.yaml, training log, best model directory |
+# Run the installer script
+python3 package_installer.py
+```
+This script will check and install all required dependencies for the AI Pipeline
 
-## Continuations
+You can install the necessary packages by launching the file. If you use conda just launch the file in the new env.
 
-- Usage and Examples: Use this section to provide descriptions and usage examples for your project.
+Otherwise if you like to use conda directly you can build the env by creating a new environment via the `environment.yml` file:
+```
+# Creating conda environment via the environment.yml file
+conda env create -f environment.yml
+```
 
-- Dependencies: List all external libraries or packages needed to run your project. This helps users understand what they should be familiar with.
+If your on Linux it is recommended to aditionally install one of the following terminal emulators to have all functionality of the AI Pipeline
+- xterm
+- x-terminal-emulator
+- gnome-terminal
 
-- Documentation and Links: Provide links to additional documentation, the project website, or related resources.
 
-- Changelog: Add a section listing the changes, updates, and improvements made in each version of your project.
+## Start Training
+To start the AI Pipeline you need to have the [dependencies](#installing-dependencies) installed.
 
-- Known Issues: List any known issues or limitations with the current version of your project. This can provide an opportunity for contributions that address the issue.
+The pipeline workflow starts with launching the `training.py` file in the src folder
+```
+# Navigate to the src folder
+cd src/
 
-## Start Training Workflow
+# Run the installer script
+python3 training.py
+```
+This will launch the browser application and allow you to configure the training settings.
+
+Excerpt of the configuration application
+![image](src/docs/images/excerpt_of_configuration_application.png)
+
+
+### Start Training Workflow
 ```mermaid
 flowchart TD
-    Start([Start Application
-    by starting Training.py]) --> UserInterface[Launch User_Interface.py]
-    
-    UserInterface --> SelectTrainingSettings[Select Training Settings
-        - Task Type
-        - Dataset
-        - Augmentation
-        - Training Mode
-        - Architecture/Model
-        - Training Parameters
-        - Scheduler Settings
-        - Optimizer Settings
-        - Transfer Learning Options]
-        
+    Start([Start Application]) --> |User interface launches automatically| SelectTrainingSettings[Select your Training Settings]
     SelectTrainingSettings --> YAMLPreview[Preview YAML]
-    YAMLPreview --> StartTrainingButton{Start Training?}
-    StartTrainingButton --> |No| Download[Download Config]
-    StartTrainingButton --> |Yes| SaveYAML[Save YAML to conf/config.yaml]
-    
-    SaveYAML --> DetectTask[Detect Selected Task]
-    DetectTask --> SelectTrainingFile[Select Appropriate Training File]
+    YAMLPreview --> DownloadConfig[Download config.yaml]
+    YAMLPreview --> StartTraining[Start Training]
+    StartTraining --> TrainingExecution[Execute Training Process]
+    TrainingExecution --> End([End])
+```
+
+At the moment only Linux with installed terminal emulators allows to start the training from the brower right away.
+If your device meets that requirement you can start the training via the `Start Training` button.
+
+If you have no terminal emulator installed or using Windows you have to start the training process manually after saving the `config.yaml` file in the `src/conf/` folder.
+
+The manual start of the training is done by launching the file of the determied training task.
+
+```mermaid
+flowchart TD
+SelectTrainingFile[Select Appropriate Training File]
     SelectTrainingFile --> |classification| ClassTraining[training_class.py]
-    SelectTrainingFile --> |object_detection| ObjDetTraining[training_objdet.py]
+    SelectTrainingFile --> |object detection| ObjDetTraining[training_objdet.py]
     SelectTrainingFile --> |segmentation| SegTraining[training_seg.py]
     
-    ClassTraining --> DetectTerminal[Detect Available Terminal]
-    ObjDetTraining --> DetectTerminal
-    SegTraining --> DetectTerminal
-    
-    DetectTerminal --> |Any Terminal| TrainingExecution[Execute Training Process]
-    
-    TrainingExecution --> InternalPipeline[Internal Training Pipeline]
-    InternalPipeline --> End([End])
+    ClassTraining --> ExecuteTraining[Execute training process]
+    ObjDetTraining --> ExecuteTraining
+    SegTraining --> ExecuteTraining
 ```
+
+
+## View Results
+After the training is completed you get an output like this:
+
+![image](src/docs/images/completed_training_console.png)
+
+You get a summary of where the data is stored and get the command to view the results in tensorboard
+```
+tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
+```
+
+
+## Add Your Own Dataset
+
+
+
+## Implement your own Architectures
+To start implementing your own models make yourself familiar with the architecture requirements
+
+[Link zu den Anforderungen an die Architekturen]()
 
 ___
 ## Internal Pipeline Structure
+
+1. Setup Phase: Creates [experiment directories](#experiment-directories), configures [logging](#logging), and loads the specified [model architecture](#model-architecture).
+2. Data Preparation: Sets up data transforms/[augmentation](#augmentation) and loads datasets with appropriate preprocessing.
+3. Training Environment: Moves the model to the appropriate device (GPU/CPU), configures the [optimizer](#optimizer) and learning rate [scheduler](#scheduler).
+4. Training Loop: For each epoch:
+    - Processes batches of training data
+    - Logs model parameters and visualizations
+    - Validates on the validation set
+    - Evaluates model performance using [COCO metrics](#coco-metrics)
+    - Updates learning rate (if scheduler is used)
+    - Saves checkpoints and tracks best model
+5. [Early Stopping](#early-stopping): Monitors validation performance and stops training if no improvement is seen after a set number of epochs.
+6. [Evaluation](#evaluation): After training completes, the best model is evaluated on the test set to assess generalization performance.
+7. [Results](#results): Creates comprehensive experiment summary including metrics, confusion matrices, and TensorBoard visualizations.
+
 
 ```mermaid
 flowchart TD
@@ -148,3 +177,46 @@ flowchart TD
     CloseWriter --> FinalLogging[Final Logging]
     FinalLogging --> End([End])
 ```
+
+### Pipeline Directories
+#### Dataset Directories
+#### Experiment Directories
+
+
+### Model Architecture
+### Augmentation
+### Optimizer
+### Scheduler
+### COCO Metrics
+### Early Stopping
+### Evaluation
+### Results
+### Logging
+
+
+
+## Pipeline Construction
+
+| Module | Description | Available standard options |
+| --- | --- | --- |
+| augmentations | Provides premade templates for augmentation. They are applied pre training, but do not create new datasets. | no_augments, augment_rotate_flip_shear_translate_brightness, augment_1 |
+| conf | Contains the Config.yaml for training pipeline executions. | config.yaml |
+| datasets | Contains Datasets | Cifar10, Pokemon, ImgNet, Yolo-Duckiebots-Lanes, Coco-Duckiebots-Lanes |
+| model_architecture | Contains models.  | swin_transformer, cnn, ResNet50, vision_transformer |
+| outputs | Temporary hydra files  |  |
+| trained_models | Keeps the trained models and all according files. | Tensorboard, Model with weights, config file, summary, log file |
+| training.py | Starts an app to configure the training. Sets the layout standards. |  |
+| training_class.py | Executes the training | |
+
+
+## Continuations
+
+- Usage and Examples: Use this section to provide descriptions and usage examples for your project.
+
+- Dependencies: List all external libraries or packages needed to run your project. This helps users understand what they should be familiar with.
+
+- Documentation and Links: Provide links to additional documentation, the project website, or related resources.
+
+- Changelog: Add a section listing the changes, updates, and improvements made in each version of your project.
+
+- Known Issues: List any known issues or limitations with the current version of your project. This can provide an opportunity for contributions that address the issue.
