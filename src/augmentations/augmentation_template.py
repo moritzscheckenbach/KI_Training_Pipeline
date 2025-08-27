@@ -11,7 +11,7 @@ def augment():
         [
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
-            ########
+            ####################################
             # Insert your own Augmentations here
             # Example:
             v2.RandomHorizontalFlip(p=0.5),
@@ -20,7 +20,7 @@ def augment():
                 translate=(0.1, 0.1),
                 scale=(0.95, 1.05),
             ),
-            ########
+            ####################################
             v2.SanitizeBoundingBoxes(),
         ]
     )
