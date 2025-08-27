@@ -148,8 +148,45 @@ datasets/
 ```
 
 ### Add Your Own Augmentation
-The current version of the pipeline **only supports augemntations written in torchvision.transforms v2**
+The current version of the pipeline **only supports augemntations written in `torchvision.transforms v2`** but support of `albumentations` is already planned
 
+To generate your own Augmentation just copy the template file, add your augmentation and rename it individually in the augmentation folder
+
+```
+src/augmentations/{YourAugmentationFile}
+```
+
+```
+import torch
+from torchvision.transforms import v2
+
+
+def augment():
+    """
+    Augmentation template
+    """
+
+    return v2.Compose(
+        [
+            v2.ToImage(),
+            v2.ToDtype(torch.float32, scale=True),
+
+            ########
+            # Insert your own Augmentations here
+
+            # Example:
+            v2.RandomHorizontalFlip(p=0.5),
+            v2.RandomAffine(
+                degrees=15,
+                translate=(0.1, 0.1),
+                scale=(0.95, 1.05),
+            ),
+            ########
+
+            v2.SanitizeBoundingBoxes(),
+        ]
+    )
+```
 
 
 ### Implement Your Own Architectures
