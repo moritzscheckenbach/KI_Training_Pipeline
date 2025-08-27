@@ -4,7 +4,6 @@ from typing import List, Tuple
 import torch
 from torch.utils.data import Dataset
 from PIL import Image
-from torchvision.tv_tensors import BoundingBoxes
 from torchvision.ops import box_convert
 from torchvision.tv_tensors import BoundingBoxes as TVBoundingBoxes
 
@@ -21,25 +20,32 @@ def _list_images(images_dir: str) -> List[str]:
 
 class YoloDataset(Dataset):
     """
-    Erwartet YOLOv5/8-Style Labeldateien:
-      <class_id> <x_center> <y_center> <width> <height>
-    mit allen Koordinaten normiert auf [0,1].
-
-    Gibt standardmäßig Boxes im Format XYWH (Pixel) zurück.
-    Optionaler `img_id_start` sorgt für disjunkte image_ids je Split.
+    Erwartet YOLOv5/8-Style Labels:
+      <class_id> <x_center> <y_center> <width> <height>  (alle normiert [0,1])
+    Gibt (img, target) analog zum CocoDataset zurück, mit:
+      target = {
+        "boxes":   FloatTensor[N,4] im XYWH-Pixel-Format,
+        "labels":  LongTensor[N],
+        "image_id": LongTensor[1],
+        "area":    FloatTensor[N],
+        "iscrowd": LongTensor[N] (immer 0)
+      }
     """
     def __init__(
         self,
         images_dir: str,
         labels_dir: str,
         transform=None,
-        img_id_start: int = 0,  # wichtig für disjunkte IDs je Split
+        img_id_start: int = 0,
+        debug_mode: bool = False,
     ):
         self.images_dir = images_dir
         self.labels_dir = labels_dir
         self.transform = transform
         self.img_id_start = int(img_id_start)
         self.image_files = _list_images(images_dir)
+        self.debug_mode = bool(debug_mode)
+        self.debug_samples = set(range(min(5, len(self.image_files)))) if self.debug_mode else set()
 
     def __len__(self) -> int:
         return len(self.image_files)
@@ -54,23 +60,20 @@ class YoloDataset(Dataset):
                         continue
                     parts = line.split()
                     if len(parts) < 5:
-                        # Ignoriere fehlerhafte Zeilen statt Exception zu werfen
                         continue
                     try:
                         class_id, x_c, y_c, w, h = map(float, parts[:5])
                     except ValueError:
                         continue
 
-                    # YOLO (relativ, center) -> XYWH (Pixel, top-left)
                     bw = max(w * W, 0.0)
                     bh = max(h * H, 0.0)
                     x1 = (x_c * W) - bw / 2.0
                     y1 = (y_c * H) - bh / 2.0
 
-                    # Clamp auf Canvas
+                    # clamp ins Bild
                     x1 = max(min(x1, W - 1.0), 0.0)
                     y1 = max(min(y1, H - 1.0), 0.0)
-                    # Breite/Höhe begrenzen, damit Box im Bild bleibt
                     bw = max(min(bw, W - x1), 0.0)
                     bh = max(min(bh, H - y1), 0.0)
 
@@ -82,8 +85,8 @@ class YoloDataset(Dataset):
             boxes_t = torch.tensor(boxes, dtype=torch.float32)
             labels_t = torch.tensor(labels, dtype=torch.int64)
         else:
-            boxes_t = torch.empty((0, 4), dtype=torch.float32)
-            labels_t = torch.empty((0,), dtype=torch.int64)
+            boxes_t = torch.zeros((0, 4), dtype=torch.float32)
+            labels_t = torch.zeros((0,), dtype=torch.int64)
         return boxes_t, labels_t
 
     def __getitem__(self, idx: int):
@@ -91,69 +94,65 @@ class YoloDataset(Dataset):
         img_path = os.path.join(self.images_dir, img_name)
         label_path = os.path.join(self.labels_dir, os.path.splitext(img_name)[0] + ".txt")
 
-        image = Image.open(img_path).convert("RGB")
+        # Einheitlich RGB (wie im COCO-Wrapper)
+        image = Image.open(img_path)
+        if hasattr(image, "mode") and image.mode != "RGB":
+            image = image.convert("RGB")
+        else:
+            image = image.convert("RGB")
         W, H = image.width, image.height
 
         boxes, labels = self._load_labels(label_path, W, H)
 
+        # area & iscrowd wie bei COCO
+        areas = (boxes[:, 2] * boxes[:, 3]) if boxes.numel() else torch.zeros((0,), dtype=torch.float32)
+        iscrowd = torch.zeros((labels.shape[0],), dtype=torch.int64)
+
         target = {
-            "boxes": boxes,                      # XYWH (Pixel)
-            "labels": labels,                    # int64
+            "boxes": boxes,                                    # XYWH float32
+            "labels": labels,                                  # int64
             "image_id": torch.tensor(self.img_id_start + idx, dtype=torch.int64),
-            "orig_size": torch.tensor([H, W], dtype=torch.int64),  # nützlich für Postprocessing
+            "area": areas.to(torch.float32),
+            "iscrowd": iscrowd,
+            # optional, schadet nicht:
+            "orig_size": torch.tensor([H, W], dtype=torch.int64),
             "size": torch.tensor([H, W], dtype=torch.int64),
         }
 
+        # optionale Transforms (kompatibel zu (img, target)->(img, target) UND nur-img)
         if self.transform is not None:
-            # Bevorzugt: (img, target) -> (img, target)
             try:
                 image, target = self.transform(image, target)
             except TypeError:
                 image = self.transform(image)
 
-        # tv_tensors -> plain Tensor (und auf gewünschtes Format bringen)
-        # tv_tensors -> plain Tensor (und auf gewünschtes Format bringen)
-        OUT_FMT = "xywh"  # falls dein Modell XYXY erwartet: "xyxy"
-
-        def _fmt_to_str(fmt) -> str | None:
-            if fmt is None:
-                return None
-            if isinstance(fmt, str):
-                return fmt.lower()
-            name = getattr(fmt, "name", None)
-            if name:
-                return name.lower()
-            return str(fmt).lower()
-
-        bb_obj = target.get("boxes")
-
-        # Prüfe breit gefasst auf BoundingBoxes (kompatibel zu versch. torchvision-Versionen)
-        if isinstance(bb_obj, TVBoundingBoxes) or "BoundingBoxes" in type(bb_obj).__name__:
-            fmt_attr = getattr(bb_obj, "format", None)
-            # Tensor extrahieren – versionssicher
-            if hasattr(bb_obj, "as_tensor"):
-                boxes_t = bb_obj.as_tensor()
-            elif isinstance(bb_obj, torch.Tensor):
-                boxes_t = bb_obj
-            else:
-                boxes_t = torch.as_tensor(bb_obj)
+        # Falls ein Transform tv_tensors.BoundingBoxes zurückliefert → Tensor + Format prüfen
+        bb = target.get("boxes", None)
+        if isinstance(bb, TVBoundingBoxes) or (bb is not None and "BoundingBoxes" in type(bb).__name__):
+            fmt = getattr(bb, "format", None)
+            boxes_t = bb.as_tensor() if hasattr(bb, "as_tensor") else torch.as_tensor(bb)
             boxes_t = boxes_t.to(torch.float32)
-
-            in_fmt = _fmt_to_str(fmt_attr)
-            if in_fmt is None or in_fmt == OUT_FMT:
-                # Format unbekannt oder bereits korrekt -> unverändert lassen
+            # Falls Transform XYXY erzeugt hat, zurück nach XYWH
+            in_fmt = getattr(fmt, "name", None)
+            in_fmt = in_fmt.lower() if isinstance(in_fmt, str) else (fmt.lower() if isinstance(fmt, str) else None)
+            if in_fmt == "xyxy":
+                target["boxes"] = box_convert(boxes_t, in_fmt="xyxy", out_fmt="xywh")
+            else:
                 target["boxes"] = boxes_t
-            else:
-                target["boxes"] = box_convert(boxes_t, in_fmt=in_fmt, out_fmt=OUT_FMT)
         else:
-            # Kein tv_tensor -> in float32 gießen
-            b = target.get("boxes")
-            if b is None:
-                target["boxes"] = torch.empty((0, 4), dtype=torch.float32)
-            else:
-                target["boxes"] = torch.as_tensor(b, dtype=torch.float32)
+            target["boxes"] = torch.as_tensor(target.get("boxes", torch.zeros((0,4))), dtype=torch.float32)
 
+        # Dtypes homogenisieren
         if not isinstance(target.get("labels"), torch.Tensor):
             target["labels"] = torch.as_tensor(target.get("labels", []), dtype=torch.int64)
+        else:
+            target["labels"] = target["labels"].to(torch.int64)
+
+        if "area" in target:
+            target["area"] = torch.as_tensor(target["area"], dtype=torch.float32)
+        if "iscrowd" in target:
+            target["iscrowd"] = torch.as_tensor(target["iscrowd"], dtype=torch.int64)
+        if "image_id" in target:
+            target["image_id"] = torch.as_tensor(target["image_id"], dtype=torch.int64)
 
         return image, target

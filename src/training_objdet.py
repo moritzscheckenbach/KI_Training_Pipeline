@@ -118,10 +118,15 @@ def main(cfg: AIPipelineConfig):
             images, targets = next(iter(train_dataloader))
             if images is not None and targets is not None:
                 images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
-                log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need)
+                log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode = "Train")
 
         # Validation ==============================================================================
         avg_val_loss, loss_dict = validate_model(cfg, model, val_dataloader, device, writer, epoch, model_need)
+
+        images, targets = next(iter(val_dataloader))
+        if images is not None and targets is not None:
+            images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
+            log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode = "Valid")
 
         # Evaluation ==============================================================================
         evaluate_coco_metrics(cfg, model, val_dataloader, device, writer, epoch, model_need)
@@ -588,7 +593,7 @@ def train_one_epoch(cfg: AIPipelineConfig, model, train_dataloader, optimizer, d
     return avg_train_loss, global_step
 
 
-def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, device, writer, epoch, model_need):
+def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, device, writer, epoch, model_need, mode):
     """
     Log visualizations to TensorBoard
     """
@@ -603,7 +608,10 @@ def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, 
         model.train()
 
     grid = make_gt_vs_pred_grid(imgs_vis, processed_targets[: len(imgs_vis)], preds, debug_mode=cfg.training.debug_mode)
-    writer.add_image("Train/GT_vs_Pred", grid, epoch)
+    if mode == "Train":
+        writer.add_image("Train/GT_vs_Pred", grid, epoch)
+    else:
+        writer.add_image("Val/GT_vs_Pred", grid, epoch)
 
 
 def validate_model(cfg: AIPipelineConfig, model, val_dataloader, device, writer, epoch, model_need):
@@ -749,7 +757,7 @@ def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device
 
     fig, ax = plt.subplots(figsize=(10, 8))
     im = ax.imshow(cm_ext, interpolation="nearest", cmap="Blues", alpha=0.6)
-    ax.set_title("Confusion Matrix (GT rows, Pred cols)\nLast column=FN, Last row=FP", fontsize=14, fontweight="bold")
+    ax.set_title("Confusion Matrix (GT rows, Pred cols)\nLast column=FP, Last row=FN", fontsize=14, fontweight="bold")
     ax.set_xlabel("Predicted class", fontsize=12)
     ax.set_ylabel("Ground truth class", fontsize=12)
 
@@ -761,8 +769,8 @@ def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device
 
     ax.set_xticks(np.arange(num_classes + 1))
     ax.set_yticks(np.arange(num_classes + 1))
-    ax.set_xticklabels([str(i) for i in range(num_classes)] + ["FP"])
-    ax.set_yticklabels([str(i) for i in range(num_classes)] + ["FN"])
+    ax.set_xticklabels([str(i) for i in range(num_classes)] + ["FN"])
+    ax.set_yticklabels([str(i) for i in range(num_classes)] + ["FP"])
     plt.tight_layout()
     writer.add_figure("Test/ConfusionMatrix_IOU0.5", fig, global_step=0)
     plt.close(fig)
