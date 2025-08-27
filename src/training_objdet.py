@@ -22,6 +22,7 @@ from torch.utils.data import Subset
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
 from torchvision.ops import box_convert
+from torchvision.tv_tensors import BoundingBoxes as TVBoundingBoxes
 from torchvision.transforms import v2 as T
 from torchvision.utils import draw_bounding_boxes
 from tqdm import tqdm
@@ -376,9 +377,9 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
             )
 
         elif dataset_type == "Type_YOLO":
-            train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
-            val_dataset   = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf)
-            test_dataset  = YoloDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf)
+            train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf, img_id_start=1000000)
+            val_dataset   = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf, img_id_start=2000000)
+            test_dataset  = YoloDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf, img_id_start=3000000)
 
         elif dataset_type == "Type_Pascal_V10":
             train_dataset = PascalDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
