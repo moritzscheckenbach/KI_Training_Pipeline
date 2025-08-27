@@ -1,18 +1,14 @@
 # AI Training Pipeline
 
-## Contents
-- [Quick Start](#quick-start)
-
-
 ## Quick Start
 To use tha AI Pipeline you need to have the dependencies installed
 
-[Install dependencies](#installing-dependencies)
+- [Install dependencies](#installing-dependencies)
+- [Start training](#start-training)
 
-To start training on already implemented models:
-
-1. [Add Your Own Dataset](#add-your-own-dataset) (Optional)
-2. [Start training](#start-training)
+To make further changes in the Code go to:
+- [Advanced Options](#advanced-options) (for your own datasets, augmentations and model architectures)
+- [Dev Options](#dev-options) (for further changes)
 
 
 ## Installing Dependencies
@@ -98,18 +94,86 @@ You get a summary of where the data is stored and get the command to view the re
 tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
 ```
 
+___
+## Advanced Options
+To use tha AI Pipeline you need to have the dependencies installed
 
-## Add Your Own Dataset
+1. [Add Your Own Dataset](#add-your-own-dataset)
+2. [Add Your Own Augmentation](#add-your-own-augmentation)
+3. [Add Your Own Architecture](#add-your-own-architecture)
+
+
+### Add Your Own Dataset
+To add one of your own datasets you first need to know of which structure type your dataset is. With tools like roboflow you can export the dataset in any type you like, else you have to know the type of your dataset.
+
+The datastructure is simple and structured by task and type of the data.
+```
+src/datasets/{task}/{type}/...
+```
+```
+datasets/
+├── classification/
+│   ├── Type_Cifar10
+    │   └── ...
+│   ├── Type_ImgNet
+    │   └── ...
+│
+├── object_detection/
+│   ├── Type_COCO/
+│   │   ├── DatasetName/
+│   │   │   ├── README.dataset.txt
+│   │   │   └── dataset/
+│   │   │       ├── _annotations.coco.json
+│   │   │       └── [image files]
+│   │
+│   └── Type_YOLO/
+│       └── DatasetName/
+│           ├── dataset/  # For auto-split
+│           │   ├── images/
+│           │   └── labels/
+│           # OR
+│           ├── train/  # If manually split
+│           │   ├── images/
+│           │   └── labels/
+│           ├── valid/
+│           │   ├── images/
+│           │   └── labels/
+│           └── test/
+│               ├── images/
+│               └── labels/
+│
+└── segmentation/
+    ├── Type_Kitty/
+    │   └── ...
+```
+
+### Add Your Own Augmentation
+The current version of the pipeline **only supports augemntations written in torchvision.transforms v2**
 
 
 
-## Implement your own Architectures
+### Implement Your Own Architectures
 To start implementing your own models make yourself familiar with the architecture requirements
 
 [Link zu den Anforderungen an die Architekturen]()
 
+
 ___
-## Internal Pipeline Structure
+## Dev Options
+If you would like to view the code or change something in the pipeline make yourself familiar with the [internal pipeline structure](#internal-pipeline-structure).
+
+At the moment you can easily implement new or change existing parts like:
+
+- Random Seed
+- Pacience Counter For Early Stopping
+- Scheduler
+- Optimizer
+- Freezing Strategies
+
+For further changes please make sure not to break anything and test your work extensively.
+
+
+### Internal Pipeline Structure
 
 1. Setup Phase: Creates [experiment directories](#experiment-directories), configures [logging](#logging), and loads the specified [model architecture](#model-architecture).
 2. Data Preparation: Sets up data transforms/[augmentation](#augmentation) and loads datasets with appropriate preprocessing.
@@ -121,7 +185,7 @@ ___
     - Evaluates model performance using [COCO metrics](#coco-metrics)
     - Updates learning rate (if scheduler is used)
     - Saves checkpoints and tracks best model
-5. [Early Stopping](#early-stopping): Monitors validation performance and stops training if no improvement is seen after a set number of epochs.
+5. [Early Stopping](#early-stopping): Monitors validation performance and stops training if no improvement is seen after a set number of epochs (changable but not in config).
 6. [Evaluation](#evaluation): After training completes, the best model is evaluated on the test set to assess generalization performance.
 7. [Results](#results): Creates comprehensive experiment summary including metrics, confusion matrices, and TensorBoard visualizations.
 
@@ -178,20 +242,20 @@ flowchart TD
     FinalLogging --> End([End])
 ```
 
-### Pipeline Directories
-#### Dataset Directories
-#### Experiment Directories
+#### Pipeline Directories
+##### Dataset Directories
+##### Experiment Directories
 
 
-### Model Architecture
-### Augmentation
-### Optimizer
-### Scheduler
-### COCO Metrics
-### Early Stopping
-### Evaluation
-### Results
-### Logging
+#### Model Architecture
+#### Augmentation
+#### Optimizer
+#### Scheduler
+#### COCO Metrics
+#### Early Stopping
+#### Evaluation
+#### Results
+#### Logging
 
 
 
