@@ -192,7 +192,7 @@ Just like the datasets the model architectures follow the same folder structure 
 ```
 src/model_architecture/{task}/{YourModelName}
 ```
-#### Model Architecture Folder Structure Example
+#### Folder Structure
 ```
 model_architecture/
 ├── classification/
@@ -344,9 +344,9 @@ src/datasets/{task}/{type}/...
 datasets/
 ├── classification/
 │   ├── Type_Cifar10
-    │   └── ...
-│   ├── Type_ImgNet
-    │   └── ...
+│   │   └── ...
+│   └── Type_ImgNet
+│       └── ...
 │
 ├── object_detection/
 │   ├── Type_COCO/
@@ -373,13 +373,30 @@ datasets/
 │               └── labels/
 │
 └── segmentation/
-    ├── Type_Kitty/
-    │   └── ...
+    └── Type_Kitty/
+        └── ...
 ```
 
 ##### Experiment Directories
-
-
+```
+trained_models/
+├── classification/
+│   └── YYYYMMDD_experiment_name/
+│       ├── models/
+│       │   ├── best_model_info.pth
+│       │   ├── best_model_weigts.pth
+│       │   └── last_model.pth
+│       ├── configs/
+│       │   └── config.yaml
+│       └── tensorboard/
+│           └── events.out.tfevents.*
+│
+├── object_detection/
+│   └── ...
+│
+└── segmentation/
+    └── ...
+```
 
 
 #### Model Architecture
@@ -438,7 +455,7 @@ flowchart LR
   K --> I --> J
 ```
 
-Template:
+##### Template:
 ```
 """
 Template Model for the Training Pipeline
