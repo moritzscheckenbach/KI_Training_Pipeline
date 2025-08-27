@@ -280,13 +280,294 @@ flowchart TD
 ```
 
 #### Pipeline Directories
+The pipeline organizes all model architectures by task:
+
+```
+model_architecture/
+├── classification/
+│   ├── cnn_class_001.py
+    └── ...
+│
+├── object_detection/
+│   ├── cnn_001.py
+    └── ...
+
+│
+└── segmentation/
+    └── ...
+```
+To add a new model to the pipeline, save the file in the corresponding directory depending on the task it is designed for.
+
 ##### Dataset Directories
+The datastructure is simple and structured by task and type of the data.
+```
+src/datasets/{task}/{type}/...
+```
+```
+datasets/
+├── classification/
+│   ├── Type_Cifar10
+    │   └── ...
+│   ├── Type_ImgNet
+    │   └── ...
+│
+├── object_detection/
+│   ├── Type_COCO/
+│   │   ├── DatasetName/
+│   │   │   ├── README.dataset.txt
+│   │   │   └── dataset/
+│   │   │       ├── _annotations.coco.json
+│   │   │       └── [image files]
+│   │
+│   └── Type_YOLO/
+│       └── DatasetName/
+│           ├── dataset/  # For auto-split
+│           │   ├── images/
+│           │   └── labels/
+│           # OR
+│           ├── train/  # If manually split
+│           │   ├── images/
+│           │   └── labels/
+│           ├── valid/
+│           │   ├── images/
+│           │   └── labels/
+│           └── test/
+│               ├── images/
+│               └── labels/
+│
+└── segmentation/
+    ├── Type_Kitty/
+    │   └── ...
+```
+
 ##### Experiment Directories
 
 
 #### Model Architecture
+If you want to implement your own model or add another architecture to the pipeline, there are a few requirements to ensure compatibility.
+
+Follow PyTorch’s nn.Module conventions when implementing your own architecture.
+
+What the Pipeline Handles Automatically
+- Device placement .to(device) 
+- FP32 inputs in range [0,1]  (do not normalize inside the model unless explicitly documented)
+- Optimizer setup (optimizer.py + config)
+- Scheduler setup (scheduler.py + config)
+- Checkpoint saving and TensorBoard logging
+- Data loading, resizing, and augmentation.
+
+
+Common pitfalls:
+- Wrong number of classes
+    - For torchvision detection models, num_classes includes background. If you have K foreground classes, pass K+1.
+
+- Transform/resize inside the model
+    - Keep the model pure; the dataset/transform stack handles preprocessing.
+
+- Forgetting eval/train modes
+    - The trainer calls model.train() / model.eval(). Don’t override this flow inside your model.
+
+
+How things Connect:
+```mermaid
+flowchart LR
+  %% --- CONFIG ---
+  subgraph CFG["Config · YAML"]
+    A["model.type"]
+    B["model.file"]
+    C["hyperparams"]
+  end
+
+  %% --- DATA ---
+  subgraph DATA["Data"]
+    D["Dataset / Transforms"]
+    E["DataLoader"]
+  end
+
+  %% --- TRAINER ---
+  subgraph TRAINER["training_objdet.py"]
+    F["Dynamic import<br/>model_architecture/&lt;type&gt;/&lt;file&gt;.py"]
+    G["build_model(cfg, num_classes)"]
+    H["Optimizer &amp; Scheduler"]
+    I["Train / Eval Loop"]
+    J["Checkpoint &amp; TensorBoard"]
+  end
+
+  CFG --> F --> G -->|nn.Module| K["Model"]
+  D --> E --> I
+  C --> H
+  K --> I --> J
+```
+
+Template:
+```
+"""
+Template Model for the Training Pipeline
+
+How to use:
+- Copy this file into model_architecture/<task>/ (classification, object_detection, segmentation)
+- Rename the file to something descriptive (e.g., "fasterrcnn_mynet.py").
+- Implement your own model inside build_model() or build_model_tr().
+"""
+
+import torch
+import torch.nn as nn
+
+
+# =========================================================
+# Build fresh model (no transfer learning)
+# =========================================================
+def build_model(num_classes: int, pretrained: bool = False) -> nn.Module:
+    """
+    Build and return a new model instance.
+
+    Args:
+        num_classes (int): Number of output classes (for detection include background!)
+        pretrained (bool): If True, load pretrained backbone (e.g. from torchvision or timm)
+
+    Returns:
+        torch.nn.Module: Model ready for training
+    """
+    # Example: simple CNN classifier (replace with your own model)
+    model = nn.Sequential(
+        nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
+        nn.ReLU(),
+        nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
+        nn.ReLU(),
+        nn.AdaptiveAvgPool2d((1, 1)),
+        nn.Flatten(),
+        nn.Linear(32, num_classes),
+    )
+    return model
+
+
+# =========================================================
+# Build model for transfer learning (optional)
+# =========================================================
+def build_model_tr(cfg) -> nn.Module:
+    """
+    Build model for transfer learning using cfg (with freezing strategies etc.).
+
+    Args:
+        cfg: Full Hydra config (cfg.model.transfer_learning contains details)
+
+    Returns:
+        torch.nn.Module: Model ready for fine-tuning
+    """
+    # Example: reuse build_model but adjust based on cfg
+    num_classes = cfg.dataset.num_classes
+    model = build_model(num_classes=num_classes, pretrained=True)
+
+    if cfg.model.transfer_learning.freezing.enabled:
+        strategy = cfg.model.transfer_learning.freezing.strategy
+        if strategy == "freeze_all_except_head":
+            for name, param in model.named_parameters():
+                param.requires_grad = "head" in name
+        elif strategy == "freeze_backbone":
+            for name, param in model.named_parameters():
+                if "backbone" in name:
+                    param.requires_grad = False
+        # add more strategies if needed
+
+    return model
+
+
+# =========================================================
+# Input size helper
+# =========================================================
+def get_input_size() -> tuple[int, int]:
+    """
+    Define the input image size expected by the model.
+    This helps the pipeline resize datasets correctly.
+
+    Returns:
+        (width, height): tuple of input dimensions
+    """
+    return 224, 224  # Change to match your model
+    
+
+
+# =========================================================
+# Quick test (run this file directly)
+# =========================================================
+if __name__ == "__main__":
+    model = build_model(num_classes=10, pretrained=False)
+    print("Template model created successfully")
+
+    dummy = torch.randn(1, 3, 224, 224)
+    out = model(dummy)
+    print(f"Dummy input shape: {dummy.shape}")
+    print(f"Dummy output shape: {out.shape}")
+```
+
+
 #### Augmentation
+
+
 #### Optimizer
+In this part it will be explained how the Optimizer component is integrated into the KI_Pipeline, which optimizers are available, and how to add new ones. At a glance:
+- Config-driven, no code changes needed for most tuning.
+- Creates a PyTorch torch.optim.Optimizer from your model’s parameters and the pipeline config.
+
+
+The pipeline currently supports the following optimizers:
+
+| Optimizer  | Description | Typical Use Cases | Key Parameters |
+|------------|-------------|-------------------|----------------|
+| **Adam**   | Adaptive Moment Estimation – the most common choice for many tasks | General-purpose, fast convergence, robust on a wide range of problems | `lr`, `betas`, `eps`, `weight_decay`, `amsgrad` |
+| **AdamW**  | Variant of Adam with **decoupled weight decay** – preferred for Transformers | NLP, Vision Transformers, transformer-like architectures | `lr`, `betas`, `eps`, `weight_decay`, `amsgrad` |
+| **SGD**    | Stochastic Gradient Descent with Momentum – the classic optimizer | Traditional computer vision (CNNs), large datasets | `lr`, `momentum`, `weight_decay`, `dampening`, `nesterov` |
+| **RMSprop** | Root Mean Square Propagation – stabilizes learning rates via moving averages | Recurrent neural networks (RNNs, LSTMs) | `lr`, `alpha`, `eps`, `weight_decay`, `momentum`, `centered` |
+| **Adagrad** | Adaptive Gradient – adjusts LR per parameter, effective for **sparse gradients** | Text processing, recommendation systems, sparse data | `lr`, `lr_decay`, `eps`, `weight_decay`, `initial_accumulator_value` |
+| **Adadelta** | Extension of Adagrad – no manual learning rate required | Tasks with highly dynamic gradients, avoids shrinking LR too quickly | `lr`, `rho`, `eps`, `weight_decay` |
+
+The training script (e.g., training_objdet.py) loads the Hydra/YAML config, builds the model, and then asks the optimizer factory to create an optimizer for model.parameters(). The returned optimizer is later passed to the scheduler and the training loop.
+
+```mermaid
+flowchart LR
+  %% --- CONFIG ---
+  subgraph CFG["Config (YAML)"]
+    A[training.learning_rate]:::cfg -->|LR| E
+    B[optimizer.type]:::cfg --> F
+    C[optimizer.* hyperparams]:::cfg --> F
+  end
+
+  %% --- Training ---
+  subgraph Training
+    D["build model()] --> E[model.parameters()"]
+    E --> F["optimizer factory"]
+    F --> G["torch.optim.Optimizer"]
+    G --> H["Scheduler factory"]
+    H --> I["torch.optim.lr_scheduler"]
+    G --> J["Training loop"]
+    I --> J
+  end
+
+  classDef cfg fill:#3399ff,stroke:#99a,stroke-width:1px;
+
+```
+
+Date flow with Scheduler
+```mermaid
+sequenceDiagram
+    participant CFG as Config (YAML)
+    participant TR as training_objdet.py
+    participant OPTI as optimizer.py
+    participant SCH as scheduler.py
+    participant PT as torch.optim
+
+    CFG->>TR: "training.learning_rate, optimizer_config"
+    TR->>OPTI: "params, base_lr, optimizer section"
+    OPTI->>PT: "create torch.optim.Type"
+    PT-->>TR: "Optimizer instance"
+    TR->>SCH: "pass Optimizer + scheduler cfg"
+    SCH->>PT: "create lr_scheduler bound to Optimizer"
+    PT-->>TR: "Scheduler instance"
+    TR->>TR: "loss.backward(), optimizer.step(), scheduler.step()"
+```
+
+If you want to add a new optimizer, make sure that the config.yaml contains all needed params.
+
 #### Scheduler
 #### COCO Metrics
 #### Early Stopping
