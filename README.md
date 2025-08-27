@@ -170,10 +170,8 @@ def augment():
         [
             v2.ToImage(),
             v2.ToDtype(torch.float32, scale=True),
-
-            ########
+            ####################################
             # Insert your own Augmentations here
-
             # Example:
             v2.RandomHorizontalFlip(p=0.5),
             v2.RandomAffine(
@@ -181,8 +179,7 @@ def augment():
                 translate=(0.1, 0.1),
                 scale=(0.95, 1.05),
             ),
-            ########
-
+            ####################################
             v2.SanitizeBoundingBoxes(),
         ]
     )
@@ -190,9 +187,49 @@ def augment():
 
 
 ### Implement Your Own Architectures
-To start implementing your own models make yourself familiar with the architecture requirements
+The current version of the pipeline **only supports PyTorch model architectures and models compatible with that**, like Timm models.
+Just like the datasets the model architectures follow the same folder structure of 
+```
+src/model_architecture/{task}/{YourModelName}
+```
+#### Model Architecture Folder Structure Example
+```
+model_architecture/
+├── classification/
+│   ├── resnet.py
+│   ├── mobilenet.py
+│   ├── efficientnet.py
+│   ├── vit.py
+│   └── custom_classifier.py
+│
+├── object_detection/
+│   ├── faster_rcnn.py
+│   ├── retinanet.py
+│   ├── ssd.py
+│   ├── yolo.py
+│   └── custom_detector.py
+│
+└── segmentation/
+    ├── unet.py
+    ├── deeplabv3.py
+    ├── fcn.py
+    └── mask_rcnn.py
+```
 
-[Link zu den Anforderungen an die Architekturen]()
+The architecture should follow standard PyTorch conventions. You can either:
+
+1. **Use existing PyTorch models** - Import and configure models directly from `torchvision.models` or other libraries like `timm`
+2. **Create custom architectures** - Implement your own model class by extending `torch.nn.Module` with the required forward pass implementation
+
+Regardless of which approach you choose, you must implement the three required interface functions listed in the table below to ensure compatibility with the training pipeline
+
+| Function | Purpose | Return Value |
+|----------|---------|--------------|
+| `build_model(num_classes)` | Creates and returns the model instance | Model object |
+| `get_inputsize()` | Defines expected input dimensions | Tuple of (width, height) |
+| `get_model_need()` | Specifies required input format | String: "Tensor" or "List" |
+
+These functions must be defined at the module level (not inside classes) to be properly imported by the training pipeline.
 
 
 ___
@@ -341,6 +378,8 @@ datasets/
 ```
 
 ##### Experiment Directories
+
+
 
 
 #### Model Architecture
@@ -504,6 +543,8 @@ if __name__ == "__main__":
 #### Augmentation
 
 
+
+
 #### Optimizer
 In this part it will be explained how the Optimizer component is integrated into the KI_Pipeline, which optimizers are available, and how to add new ones. At a glance:
 - Config-driven, no code changes needed for most tuning.
@@ -569,11 +610,22 @@ sequenceDiagram
 If you want to add a new optimizer, make sure that the config.yaml contains all needed params.
 
 #### Scheduler
+
+
 #### COCO Metrics
+
+
 #### Early Stopping
+
+
 #### Evaluation
+
+
 #### Results
+
+
 #### Logging
+The whole logging is done with loguru. For further information go to the [loguru documentation](https://loguru.readthedocs.io/en/stable/)
 
 
 
@@ -589,6 +641,21 @@ If you want to add a new optimizer, make sure that the config.yaml contains all 
 | trained_models | Keeps the trained models and all according files. | Tensorboard, Model with weights, config file, summary, log file |
 | training.py | Starts an app to configure the training. Sets the layout standards. |  |
 | training_class.py | Executes the training | |
+
+
+# KI Training Pipeline – Dateiübersicht
+
+Diese Tabelle zeigt, welche Dateien welche Informationen **bereitstellen** und **benötigen**, sowie ihre Haupt-Outputs.
+
+| Datei / Ressource | Stellt bereit (für andere) | Benötigt / Erwartet | Typische Aufrufer | Haupt-Outputs |
+|-------------------|----------------------------|----------------------|-------------------|---------------|
+| **User_Interface.py** | GUI (Streamlit) für Konfiguration und Start von Trainingsläufen; erzeugt `conf/config.yaml`. | Zugriff auf Dataset-Ordner (`datasets/...`), `classes.yaml` (für `num_classes`), verfügbare Modelle im Ordner `model_architecture/`. | Nutzer (GUI-Interaktion). Ruft anschließend `training_objdet.py` auf. | `conf/config.yaml` mit allen Parametern. |
+| **config.py** | Definiert Hydra-Konfigurationsschema (`AIPipelineConfig`) inkl. Training, Scheduler, Optimizer, Augmentation, Model, Dataset. | Wird von Hydra geladen. Erwartet externe YAML-Configs. | `training_objdet.py`, `User_Interface.py`. | Konfigurationsobjekte für Training/Eval. |
+| **training_objdet.py** | Orchestriert Training/Eval: lädt Config, Datasets, Modell; Training-Loop mit Logging, TensorBoard, Checkpoints. | `conf/config.yaml`, `config.py` Schema, Dataset-Ordner (`train/`, `val/`, `test/` mit Annotations), `classes.yaml`, Modellmodule (`fasterRCNN_001Resnet.py`, `fasterrcnn_swin_timm.py`). | Wird durch `User_Interface.py` oder CLI gestartet. | Checkpoints (`best_model_weights.pth`), Logs (`training.log`), TensorBoard-Runs, `experiment_summary.yaml`. |
+| **fasterRCNN_001Resnet.py** | `build_model(num_classes)` für Faster R-CNN mit ResNet50-FPN Backbone. | torchvision (`fasterrcnn_resnet50_fpn`), `num_classes`. | `training_objdet.py`. | Initialisiertes Faster R-CNN-Modell. |
+| **fasterrcnn_swin_timm.py** | `build_model(num_classes)` für Faster R-CNN mit Swin-Backbone (über `timm`) + FPN. | `timm`, torchvision detection API, `num_classes`. | `training_objdet.py`. | Initialisiertes Faster R-CNN (Swin-Backbone). |
+| **Dataset-Ordner** (`train/`, `val/`, `test/`) | Bilder + Labels (COCO, YOLO, Pascal V1.0). | Korrektes Format (z. B. `train/_annotations.coco.json`). | `training_objdet.py` via Dataloader. | Eingabedaten für Training/Eval. |
+| **classes.yaml** | Enthält `num_classes` (und ggf. Klassenliste). | Muss konsistent mit Annotationen sein. | `User_Interface.py` (liest Anzahl Klassen), `training_objdet.py`. | Zahl der Klassen → für Model-Head. |
 
 
 ## Continuations
