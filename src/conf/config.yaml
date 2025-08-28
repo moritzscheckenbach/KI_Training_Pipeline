@@ -49,11 +49,11 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/object_detection/Type_COCO/Duckiebots_nosplit/"
+  root: "datasets/object_detection/Type_COCO/Duckiebots_mini/"
   type: "Type_COCO"
   num_classes: 4
   autosplit:
-    enabled: true
+    enabled: false
     train_ratio: 0.7
     val_ratio: 0.15
-    test_ratio: 0.15000000000000005
+    test_ratio: 0.15
