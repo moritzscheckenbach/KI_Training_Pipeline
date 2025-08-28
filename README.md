@@ -265,6 +265,7 @@ For a more indebth look at how the architecture structure works it is recommende
 ___
 ## Dev Options
 If you would like to view the code or change something in the pipeline make yourself familiar with the [internal pipeline structure](#internal-pipeline-structure).
+A Dictionary for every function in the code can be found [here](#function-dictionary)
 
 At the moment you can easily implement new or change existing parts like:
 
@@ -524,7 +525,7 @@ import torch.nn as nn
 
 
 # =========================================================
-# Build fresh model (no transfer learning)
+# Build fresh model
 # =========================================================
 def build_model(num_classes: int, pretrained: bool = False) -> nn.Module:
     """
@@ -547,37 +548,6 @@ def build_model(num_classes: int, pretrained: bool = False) -> nn.Module:
         nn.Flatten(),
         nn.Linear(32, num_classes),
     )
-    return model
-
-
-# =========================================================
-# Build model for transfer learning (optional)
-# =========================================================
-def build_model_tr(cfg) -> nn.Module:
-    """
-    Build model for transfer learning using cfg (with freezing strategies etc.).
-
-    Args:
-        cfg: Full Hydra config (cfg.model.transfer_learning contains details)
-
-    Returns:
-        torch.nn.Module: Model ready for fine-tuning
-    """
-    # Example: reuse build_model but adjust based on cfg
-    num_classes = cfg.dataset.num_classes
-    model = build_model(num_classes=num_classes, pretrained=True)
-
-    if cfg.model.transfer_learning.freezing.enabled:
-        strategy = cfg.model.transfer_learning.freezing.strategy
-        if strategy == "freeze_all_except_head":
-            for name, param in model.named_parameters():
-                param.requires_grad = "head" in name
-        elif strategy == "freeze_backbone":
-            for name, param in model.named_parameters():
-                if "backbone" in name:
-                    param.requires_grad = False
-        # add more strategies if needed
-
     return model
 
 
@@ -608,10 +578,6 @@ if __name__ == "__main__":
     print(f"Dummy input shape: {dummy.shape}")
     print(f"Dummy output shape: {out.shape}")
 ```
-
-
-#### Augmentation
-
 
 
 
@@ -782,3 +748,225 @@ Diese Tabelle zeigt, welche Dateien welche Informationen **bereitstellen** und *
 - Changelog: Add a section listing the changes, updates, and improvements made in each version of your project.
 
 - Known Issues: List any known issues or limitations with the current version of your project. This can provide an opportunity for contributions that address the issue.
+
+## Function Dictionary
+________________________________________________________
+### training_objdet.py
+[def main()](#def-main)
+
+[def setup_experiment_dir()](#def-setup_experiment_dir)
+
+[def setup_logger()](#def-setup_logger)
+
+[def load_model()](#def-load_model)
+
+[def setup_transforms()](#def-setup_transforms)
+
+[def load_datasets()](#def-load_datasets)
+
+[def _build_full_dataset()](#def-_build_full_dataset)
+
+Moritz
+_______________________________________________________
+
+[def _split_lengths()](#def-_split_lengths)
+
+
+[def create_dataloaders()](#def-create_dataloaders)
+
+[def setup_device()](#def-setup_device)
+
+[def setup_optimizer()](#def-setup_optimizer)
+
+[def setup_scheduler()](#def-setup_scheduler)
+
+[def log_model_parameters()](#def-log_model_parameters)
+
+[def train_one_epoch()](#def-train_one_epoch)
+
+[def log_visualizations()](#def-log_visualizations)
+
+[def validate_model()](#def-validate_model)
+
+[def evaluate_coco_metrics()](#def-evaluate_coco_metrics)
+
+[def save_checkpoint()](#def-save_checkpoint)
+
+[def build_confusion_matrix()](#def-build_confusion_matrix)
+
+[def create_experiment_summary()](#def-create_experiment_summary)
+
+[def collate_fn()](#def-collate_fn)
+
+[def clear_gpu_cache()](#def-clear_gpu_cache)
+
+[def coco_xywh_to_xyxy()](#def-coco_xywh_to_xyxy)
+
+[def draw_boxes_on_img()](#def-draw_boxes_on_img)
+
+[def tensor_to_uint8()](#def-tensor_to_uint8)
+
+[def make_gt_vs_pred_grid()](#def-make_gt_vs_pred_grid)
+
+[def grad_global_norm()](#def-grad_global_norm)
+
+[def iou_matrix()](#def-iou_matrix)
+
+[def confusion_matrix_detection()](#def-confusion_matrix_detection)
+
+Felix
+_______________________________________________________
+
+[def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
+
+[def model_input_format()](#def-model_input_format)
+
+[def _check_img_range()](#def-_check_img_range)
+
+[def debug_show()](#def-debug_show)
+
+[def debug_show_grid()](#def-debug_show_grid)
+
+[def dump_yaml_str()](#def-dump_yaml_str)
+
+
+### User_Interface.py
+
+[def quote_specific_strings()](#def-quote_specific_strings)
+
+[def dump_yaml_str()](#def-dump_yaml_str)
+
+[def list_dirs()](#def-list_dirs)
+
+[def list_files()](#def-list_files)
+
+[def get_dataset_options()](#def-get_dataset_options)
+
+[def get_num_classes()](#def-get_num_classes)
+
+[def check_dataset_split_status()](#def-check_dataset_split_status)
+
+[def _get()](#def-_get)
+
+Janik
+_______________________________________________________
+
+### evaluation.py
+
+[def list_dirs()](#def-list_dirs)
+
+[def build_logdir_spec()](#def-build_logdir_spec)
+
+[def find_terminal_command()](#def-find_terminal_command)
+
+[def tensorboard_command()](#def-tensorboard_command)
+
+
+### training.py and compare.py
+
+[def start_user_interface()](#def-start_user_interface)
+
++ File overview
+
+Wesley
+____________________________________________________________________
+
+### Functions
+
+#### def main()
+this function does ....
+
+
+#### def setup_experiment_dir()
+
+
+#### def setup_logger()
+
+
+#### def load_model()
+
+#### def setup_transforms()
+
+#### def load_datasets()
+
+#### def _build_full_dataset()
+
+#### def _split_lengths()
+
+#### def create_dataloaders()
+
+#### def setup_device()
+
+#### def setup_optimizer()
+
+#### def setup_scheduler()
+
+#### def log_model_parameters()
+
+#### def train_one_epoch()
+
+#### def log_visualizations()
+
+#### def validate_model()
+
+#### def evaluate_coco_metrics()
+
+#### def save_checkpoint()
+
+#### def build_confusion_matrix()
+
+#### def create_experiment_summary()
+
+#### def collate_fn()
+
+#### def clear_gpu_cache()
+
+#### def coco_xywh_to_xyxy()
+
+#### def draw_boxes_on_img()
+
+#### def tensor_to_uint8()
+
+#### def make_gt_vs_pred_grid()
+
+#### def grad_global_norm()
+
+#### def iou_matrix()
+
+#### def confusion_matrix_detection()
+
+#### def evaluate_coco_from_loader()
+
+#### def model_input_format()
+
+#### def _check_img_range()
+
+#### def debug_show()
+
+#### def debug_show_grid()
+
+#### def quote_specific_strings()
+
+#### def dump_yaml_str()
+
+#### def list_dirs()
+
+#### def list_files()
+
+#### def get_dataset_options()
+
+#### def get_num_classes()
+
+#### def check_dataset_split_status()
+
+#### def _get()
+
+#### def list_dirs()
+
+#### def build_logdir_spec()
+
+#### def find_terminal_command()
+
+#### def tensorboard_command()
+
+#### def start_user_interface()
