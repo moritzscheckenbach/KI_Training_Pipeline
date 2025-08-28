@@ -29,13 +29,13 @@ def quote_specific_strings(data):
         result = {}
         for k, v in data.items():
             # Specific keys whose values should be in quotes
-            if k in ["file", "type", "path", "trans_file", "strategy", "root", "head_name", "backbone_name"]:
+            if k in ["file", "type", "path", "trans_file", "strategy", "root", "head_name", "backbone_name", "mode"]:
                 if isinstance(v, str) and v:
                     result[k] = DoubleQuotedScalarString(v)
                 else:
                     result[k] = v
             # Specific arrays should be displayed as flow-style (square brackets)
-            elif k in ["betas", "freeze_layers", "unfreeze_layers"]:
+            elif k in ["betas", "freeze_layers", "unfreeze_layers", "milestones"]:
                 if isinstance(v, list):
                     flow_seq = CommentedSeq(v)
                     flow_seq.fa.set_flow_style()
@@ -269,9 +269,33 @@ with col1:
 with col2:
     st.markdown("**Scheduler Parameters**")
     scheduler_type = st.selectbox("Scheduler Type", ["StepLR", "MultiStepLR", "ExponentialLR", "CosineAnnealingLR", "ReduceLROnPlateau"])
-    scheduler_patience = st.number_input("Scheduler Patience", min_value=1, max_value=100, value=5)
-    scheduler_factor = st.number_input("Scheduler Factor", min_value=0.01, max_value=1.0, value=0.5, format="%.3f")
-    min_lr = st.number_input("Min Learning Rate", min_value=1e-10, max_value=1e-3, value=1e-6, format="%.2e")
+    
+    # Initialize scheduler params dictionary
+    scheduler_params = {}
+    
+    if scheduler_type == "StepLR":
+        scheduler_params["step_size"] = st.number_input("Step Size (epochs)", 1, 500, 10)
+        scheduler_params["gamma"] = st.number_input("Gamma", 0.01, 1.0, 0.1, format="%.3f")
+    
+    elif scheduler_type == "MultiStepLR":
+        milestones_str = st.text_input("Milestones (comma-separated)", "30,60,90")
+        scheduler_params["milestones"] = [int(x.strip()) for x in milestones_str.split(",") if x.strip().isdigit()]
+        scheduler_params["gamma"] = st.number_input("Gamma", 0.01, 1.0, 0.1, format="%.3f")
+    
+    elif scheduler_type == "ExponentialLR":
+        scheduler_params["gamma"] = st.number_input("Gamma", 0.01, 1.0, 0.95, format="%.3f")
+    
+    elif scheduler_type == "CosineAnnealingLR":
+        scheduler_params["T_max"] = st.number_input("T_max (epochs)", 1, 1000, 50)
+        scheduler_params["eta_min"] = st.number_input("Eta Min (min LR)", 1e-10, 1e-3, 1e-6, format="%.2e")
+    
+    elif scheduler_type == "ReduceLROnPlateau":
+        scheduler_params["mode"] = st.selectbox("Mode", ["min", "max"])
+        scheduler_params["factor"] = st.number_input("Factor (LR *= factor)", 0.01, 1.0, 0.5, format="%.3f")
+        scheduler_params["patience"] = st.number_input("Patience (epochs)", 1, 100, 5)
+        scheduler_params["threshold"] = st.number_input("Threshold", 0.0, 1.0, 1e-4, format="%.1e")
+        scheduler_params["cooldown"] = st.number_input("Cooldown (epochs)", 0, 100, 0)
+        scheduler_params["min_lr"] = st.number_input("Min Learning Rate", 1e-10, 1e-3, 1e-6, format="%.2e")
 
 # =========================
 # Optimizer Configuration
@@ -331,6 +355,23 @@ if mode == "Transfer Learning: Self-trained Model":
 # =========================
 # Config Generation
 # =========================
+def _get(d, key, default, cast=lambda x: x):
+    return cast(d.get(key, default))
+
+DEFAULTS = {
+    "step_size": 10,          # StepLR
+    "gamma": 0.1,             # StepLR / MultiStepLR; für ExponentialLR überschrieben weiter unten
+    "milestones": [30, 60, 90],  # MultiStepLR
+    "exp_gamma": 0.95,        # ExponentialLR (eigener Default-Name, wird unten auf "gamma" gemappt)
+    "T_max": 50,              # CosineAnnealingLR
+    "eta_min": 1e-6,          # CosineAnnealingLR
+    "mode": "min",            # ReduceLROnPlateau
+    "factor": 0.5,            # ReduceLROnPlateau
+    "patience": 5,            # ReduceLROnPlateau
+    "threshold": 1e-4,        # ReduceLROnPlateau
+    "cooldown": 0,            # ReduceLROnPlateau
+    "min_lr": 1e-6,           # ReduceLROnPlateau
+}
 
 # Parse dataset type from dataset selection
 dataset_type = ""
@@ -349,7 +390,25 @@ config = {
         "random_seed": int(random_seed),
         "debug_mode": bool(modus_debug),
     },
-    "scheduler": {"file": "scheduler", "type": scheduler_type, "patience": int(scheduler_patience), "factor": float(scheduler_factor), "min_lr": float(min_lr)},
+    "scheduler": {
+        "file": "scheduler", 
+        "type": scheduler_type, 
+        "step_size": _get(scheduler_params, "step_size", DEFAULTS["step_size"], int),
+        "gamma": float(
+            scheduler_params["gamma"]
+        ) if "gamma" in scheduler_params else (
+            DEFAULTS["exp_gamma"] if scheduler_type == "ExponentialLR" else DEFAULTS["gamma"]
+        ),
+        "milestones": _get(scheduler_params, "milestones", DEFAULTS["milestones"], list),
+        "T_max": _get(scheduler_params, "T_max", DEFAULTS["T_max"], int),
+        "eta_min": _get(scheduler_params, "eta_min", DEFAULTS["eta_min"], float),
+        "mode": _get(scheduler_params, "mode", DEFAULTS["mode"], str),
+        "factor": _get(scheduler_params, "factor", DEFAULTS["factor"], float),
+        "patience": _get(scheduler_params, "patience", DEFAULTS["patience"], int),
+        "threshold": _get(scheduler_params, "threshold", DEFAULTS["threshold"], float),
+        "cooldown": _get(scheduler_params, "cooldown", DEFAULTS["cooldown"], int),
+        "min_lr": _get(scheduler_params, "min_lr", DEFAULTS["min_lr"], float),
+    },
     "optimizer": {
         "type": optimizer_type,
         "weight_decay": float(weight_decay),
@@ -458,3 +517,6 @@ with col1:
 
 with col2:
     st.download_button("Download", data=yaml_text, file_name="config.yaml", mime="text/yaml")
+
+
+
