@@ -36,6 +36,23 @@ If your on Linux it is recommended to aditionally install one of the following t
 - x-terminal-emulator
 - gnome-terminal
 
+## Docker
+Build image:
+```
+docker build -t ki-pipeline:cuda 
+```
+Docker Compose Build: 
+```
+docker compose build
+```
+Start:
+```
+docker compose up
+```
+Stop:
+```
+docker compose down
+```
 
 ## Start Training
 To start the AI Pipeline you need to have the [dependencies](#installing-dependencies) installed.
