@@ -413,7 +413,7 @@ datasets/
 ```
 
 #### Dataloader Directories
-The Dataloader is supplying iterated batches of `(images, targets)´.
+The Dataloader is supplying iterated batches of `(images, targets)´ in classic COCO convention.
 
 Images have the Type: List[torch.Tensor]; and the length of the batchsize.
 Every entry is a picture as a tensor like:

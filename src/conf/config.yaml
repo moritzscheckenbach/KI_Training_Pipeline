@@ -1,6 +1,6 @@
 training:
-  epochs: 25
-  batch_size: 8
+  epochs: 5
+  batch_size: 16
   learning_rate: 0.001
   early_stopping_patience: 10
   random_seed: 42
@@ -19,10 +19,10 @@ optimizer:
   sgd:
     momentum: 0.9
 augmentation:
-  file: "no_augmentation"
+  file: "augment_rotate_flip_shear_translate_brightness"
 model:
-  type: "object_detection"
-  file: "fasterRCNN_001Resnet"
+  type: "classification"
+  file: "cnn_class_001"
   transfer_learning:
     enabled: false
     path: ''
@@ -41,11 +41,11 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/object_detection/Type_COCO/RockPaperScissors/"
-  type: "Type_COCO"
-  num_classes: 4
+  root: "datasets/classification/Type_Folder/pokemon/"
+  type: "Type_Folder"
+  num_classes: 110
   autosplit:
     enabled: false
-    train_ratio: 0.70
+    train_ratio: 0.7
     val_ratio: 0.15
     test_ratio: 0.15

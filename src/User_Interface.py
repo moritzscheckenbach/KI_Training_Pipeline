@@ -10,6 +10,11 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 
 # =========================
+# Configuration Variables
+# =========================
+DATASET_ALREADY_SPLIT = False  # Set to True if your datasets are already split into train/valid/test folders
+
+# =========================
 # Helpers
 # =========================
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
@@ -107,6 +112,26 @@ def get_num_classes(datasets_root: Path, task: str, dataset_path: str) -> int:
     return 1
 
 
+def check_dataset_split_status(datasets_root: Path, task: str, dataset_path: str) -> bool:
+    """Check if dataset is already split by looking for 'train' folder vs 'dataset' folder"""
+    if not dataset_path:
+        return False
+    
+    dataset_full_path = datasets_root / task / dataset_path
+    if not dataset_full_path.exists():
+        return False
+    
+    # Check if 'train' folder exists (already split)
+    if (dataset_full_path / "train").exists():
+        return True
+    
+    # Check if 'dataset' folder exists (not split)
+    if (dataset_full_path / "dataset").exists():
+        return False
+    
+    # Default fallback
+    return False
+
 # =========================
 # Page Setup
 # =========================
@@ -134,36 +159,45 @@ dataset_options = get_dataset_options(datasets_root, task)
 if not dataset_options:
     st.info(f"No datasets found in 'datasets/{task}/'.")
     dataset = None
+    DATASET_ALREADY_SPLIT = False
 else:
     dataset = st.selectbox("Dataset", dataset_options)
+    # Automatically determine if dataset is already split
+    DATASET_ALREADY_SPLIT = check_dataset_split_status(datasets_root, task, dataset)
 
 # Dataset Split Configuration
 st.markdown("**Dataset Split Configuration**")
-split_mode_options = ["Yes", "No"]
-split_mode = st.radio("Is dataset already split into train/valid/test?", split_mode_options, horizontal=True)
 
 # Default split ratios
 train_ratio = 0.70
 val_ratio = 0.15
 test_ratio = 0.15
 
-if split_mode == "No":
+if not DATASET_ALREADY_SPLIT:
+    st.info("📊 Dataset will be automatically split during training")
     st.markdown("**Define Split Ratios**")
+    
+    # Verwende Slider für bessere Kontrolle
+    train_ratio = st.slider("Train Ratio", min_value=0.1, max_value=0.9, value=0.70, step=0.01)
+    
+    # Berechne die verbleibende Summe
+    remaining = 1.0 - train_ratio
+    
+    # Val Ratio kann nur maximal den verbleibenden Wert haben
+    val_ratio = st.slider("Val Ratio", min_value=0.0, max_value=remaining, value=min(0.15, remaining), step=0.01)
+    
+    # Test Ratio wird automatisch berechnet
+    test_ratio = remaining - val_ratio
+    
     col1, col2, col3 = st.columns(3)
-
     with col1:
-        train_ratio = st.number_input("Train Ratio", min_value=0.0, max_value=1.0, value=0.70, format="%.2f")
+        st.metric("Train Ratio", f"{train_ratio:.3f}")
     with col2:
-        val_ratio = st.number_input("Val Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
+        st.metric("Val Ratio", f"{val_ratio:.3f}")
     with col3:
-        test_ratio = st.number_input("Test Ratio", min_value=0.0, max_value=1.0, value=0.15, format="%.2f")
-
-    # Validation: Check if sum equals 1
-    total_ratio = train_ratio + val_ratio + test_ratio
-    if abs(total_ratio - 1.0) > 0.001:  # Small tolerance for floating point errors
-        st.error(f"⚠️ The sum of ratios must equal 1.0! Current: {total_ratio:.3f}")
-    else:
-        st.success(f"✅ Split ratios correct: {total_ratio:.3f}")
+        st.metric("Test Ratio", f"{test_ratio:.3f}")
+else:
+    st.info("📁 Using pre-split dataset folders (train/valid/test)")
 
 # =========================
 # Augmentation Selection
@@ -357,7 +391,7 @@ config = {
         "root": f"datasets/{task}/{dataset}/" if dataset else "",
         "type": dataset_type,
         "num_classes": num_classes,
-        "autosplit": {"enabled": not split_mode == "Yes", "train_ratio": float(train_ratio), "val_ratio": float(val_ratio), "test_ratio": float(test_ratio)},
+        "autosplit": {"enabled": not DATASET_ALREADY_SPLIT, "train_ratio": float(train_ratio), "val_ratio": float(val_ratio), "test_ratio": float(test_ratio)},
     },
 }
 
