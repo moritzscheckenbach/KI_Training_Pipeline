@@ -1,0 +1,26 @@
+# docker-compose.yml
+services:
+  ki_pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ki_pipeline
+    # GPU aktivieren (Host braucht NVIDIA Treiber + nvidia-container-toolkit)
+    deploy: {}
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    volumes:
+      # Live-Entwicklung: mount lokale Ordner, falls du nicht im Image arbeiten willst
+      - ./src:/app/src
+      - ./data:/app/data   # falls du Daten außerhalb halten willst
+      - ./runs:/app/runs   # TensorBoard/CHECKPOINTS
+      - ./conf:/app/conf   # falls du YAML-Konfigurationen trennst
+    ports:
+      - "6006:6006"  # TensorBoard
+      - "8501:8501"  # Streamlit UI
+    shm_size: "8g"
+    command: >
+      CMD ["bash","-lc","python src/training.py"]
+
