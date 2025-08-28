@@ -1,10 +1,11 @@
-# AI Training Pipeline
+# AI Training Pipeline MFW
 
 ## Quick Start
-To use tha AI Pipeline you need to have the dependencies installed
+To use the AI Pipeline you need to have the dependencies installed
 
 - [Install dependencies](#installing-dependencies)
 - [Start training](#start-training)
+- [Compare models](#compare-models)
 
 To make further changes in the Code go to:
 - [Advanced Options](#advanced-options) (for your own datasets, augmentations and model architectures)
@@ -93,6 +94,23 @@ You get a summary of where the data is stored and get the command to view the re
 ```
 tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
 ```
+## Compare Models
+You can compare the tensorboard evaluation of multiple trained models via the model comparison.
+
+The comparison starts with launching the `compare.py` file in the src folder
+```
+# Navigate to the src folder
+cd src/
+
+# Run the installer script
+python3 compare.py
+```
+This will launch the browser application and allow you to select up to 10 previously trained models.
+
+The application will generate the command to starte the tensorboards.
+If you are on Linux and have a terminal emulator installed you can start the tensorboards with the button on the application.
+
+If you are on Windows or have not the emulator installed you will have to manually copy paste the command in your terminal to start the comparison.
 
 ___
 ## Advanced Options
@@ -122,6 +140,7 @@ datasets/
 │   ├── Type_COCO/
 │   │   ├── DatasetName/
 │   │   │   ├── README.dataset.txt
+│   │   │   ├── classes.yaml
 │   │   │   └── dataset/
 │   │   │       ├── _annotations.coco.json
 │   │   │       └── [image files]
@@ -131,6 +150,7 @@ datasets/
 │           ├── dataset/  # For auto-split
 │           │   ├── images/
 │           │   └── labels/
+│           ├── classes.yaml
 │           # OR
 │           ├── train/  # If manually split
 │           │   ├── images/
@@ -138,14 +158,21 @@ datasets/
 │           ├── valid/
 │           │   ├── images/
 │           │   └── labels/
-│           └── test/
-│               ├── images/
-│               └── labels/
+│           ├── test/
+│           │    ├── images/
+│           │    └── labels/
+│           └──── classes.yaml
 │
 └── segmentation/
     ├── Type_Kitty/
     │   └── ...
 ```
+**Note!** Dont forget the `classes.yaml` file with:
+``` 
+num_classes: [number of classes in the dataset]
+``` 
+For a more indebth look at how the dataset structure works it is recommended to consult the [Dataset Directories](#dataset-directories)
+
 
 ### Add Your Own Augmentation
 The current version of the pipeline **only supports augemntations written in `torchvision.transforms v2`** but support of `albumentations` is already planned
@@ -216,7 +243,8 @@ model_architecture/
     └── mask_rcnn.py
 ```
 
-The architecture should follow standard PyTorch conventions. You can either:
+The architecture should follow standard PyTorch conventions. That means labeld Bounding-Boxes are expected to be in the XYXY-Convention opposed to other conventions like those of COCO, YOLO, etc. For the exact composition of the "targets" consult the [Trainings Data](#trainings-data) structure.
+You can either:
 
 1. **Use existing PyTorch models** - Import and configure models directly from `torchvision.models` or other libraries like `timm`
 2. **Create custom architectures** - Implement your own model class by extending `torch.nn.Module` with the required forward pass implementation
@@ -232,6 +260,8 @@ Regardless of which approach you choose, you must implement the three required i
 These functions must be defined at the module level (not inside classes) to be properly imported by the training pipeline.
 
 
+For a more indebth look at how the architecture structure works it is recommended to consult the [Directories](#model-architecture)
+
 ___
 ## Dev Options
 If you would like to view the code or change something in the pipeline make yourself familiar with the [internal pipeline structure](#internal-pipeline-structure).
@@ -245,6 +275,8 @@ At the moment you can easily implement new or change existing parts like:
 - Freezing Strategies
 
 For further changes please make sure not to break anything and test your work extensively.
+**Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal (to be implemented) are transformed into the COCO-Format.
+For the exact composition of the data consult the [Dataloader directory](#dataloader-directories). Later when giving the images and targets to the model, the targets are transformed in XYXY Pytorch convention. The Predicitons of the model are then transformed back into the COCO-Format.
 
 
 ### Internal Pipeline Structure
@@ -344,14 +376,15 @@ src/datasets/{task}/{type}/...
 datasets/
 ├── classification/
 │   ├── Type_Cifar10
-│   │   └── ...
-│   └── Type_ImgNet
-│       └── ...
+    │   └── ...
+│   ├── Type_ImgNet
+    │   └── ...
 │
 ├── object_detection/
 │   ├── Type_COCO/
 │   │   ├── DatasetName/
 │   │   │   ├── README.dataset.txt
+│   │   │   ├── classes.yaml
 │   │   │   └── dataset/
 │   │   │       ├── _annotations.coco.json
 │   │   │       └── [image files]
@@ -361,6 +394,7 @@ datasets/
 │           ├── dataset/  # For auto-split
 │           │   ├── images/
 │           │   └── labels/
+│           ├── classes.yaml
 │           # OR
 │           ├── train/  # If manually split
 │           │   ├── images/
@@ -368,14 +402,33 @@ datasets/
 │           ├── valid/
 │           │   ├── images/
 │           │   └── labels/
-│           └── test/
-│               ├── images/
-│               └── labels/
+│           ├── test/
+│           │    ├── images/
+│           │    └── labels/
+│           └──── classes.yaml
 │
 └── segmentation/
-    └── Type_Kitty/
-        └── ...
+    ├── Type_Kitty/
+    │   └── ...
 ```
+
+#### Dataloader Directories
+The Dataloader is supplying iterated batches of `(images, targets)´.
+
+Images have the Type: List[torch.Tensor]; and the length of the batchsize.
+Every entry is a picture as a tensor like:
+form: (C, H, W)
+datatype: torch.float32
+value-range: [0,1]
+
+Targets have the Type: List[Dict] and have the same length as the Images (batchsize).
+Every entry is the coresponding annotations for the image:
+    "boxes": Tensor[n, 4]      
+    "labels": Tensor[n]       
+    "image_id": Tensor[1]      
+    "area": Tensor[n]        
+    "iscrowd": Tensor[n]
+With n being the number of objects in one image.
 
 ##### Experiment Directories
 ```
@@ -402,7 +455,7 @@ trained_models/
 #### Model Architecture
 If you want to implement your own model or add another architecture to the pipeline, there are a few requirements to ensure compatibility.
 
-Follow PyTorch’s nn.Module conventions when implementing your own architecture.
+Follow PyTorch’s nn.Module conventions when implementing your own architecture. (Also see [Training Data](#trainings-data))
 
 What the Pipeline Handles Automatically
 - Device placement .to(device) 
@@ -628,12 +681,55 @@ If you want to add a new optimizer, make sure that the config.yaml contains all 
 
 #### Scheduler
 
+#### Trainings Data
+Depending on `model_need´ in the model architecture the training data given to the model can take two forms.
+
+For `model_need == "Tensor"`:
+images: are stacked to a single tensor with the form: `(batch_size, C, H, W)`
+processed_targets: a list of dicts with the length of `batch_size´ with "boxes" (XYXY) and "labels"
+
+For `model_need == "List"`:
+images: is a list of Tensors with every Tensor having the form: `(C, H, W)`
+processed_targets: identical structure to model_need == "Tensor": a list of dicts with the length of `batch_size´ with "boxes" (XYXY) and "labels"
 
 #### COCO Metrics
+
+The following metrics are generated on the validation data using the COCO evaluation protocol (bbox IoU):
+
+`AP` – Average Precision, averaged across IoU thresholds from 0.50 to 0.95 (main COCO metric).
+
+`AP50 / AP75` – Precision at a fixed IoU of 0.50 (loose match) and 0.75 (stricter match).
+
+`AP_small / AP_medium / AP_large` – Precision split by object size (COCO definitions).
+
+`AR_k (e.g., AR_1, AR_10, AR_100)` – Average Recall, i.e. the fraction of ground-truth objects found when allowing up to k predictions per image.
+
+`AR_small / AR_medium / AR_large` – Recall split by object size.
+
+`Per-class AP/AR` – Detailed class-wise results to inspect individual categories.
+
+Interpretation:
+
+AP is the overall performance indicator (higher = better).
+
+AP50 vs. AP75 shows whether detections are just roughly correct or well-localized.
+
+AR shows how many objects the model finds, regardless of precision.
+
+Per-class metrics help identify weaknesses for specific categories.
 
 
 #### Early Stopping
 
+During training, an early stopping mechanism monitors the validation loss to prevent overfitting:
+
+After each epoch, the current validation loss is compared to the best loss so far.
+
+If the loss improves, the best value is updated and the patience counter is reset.
+
+If the loss does not improve, the patience counter increases.
+
+Once the patience counter reaches the configured limit (`cfg.training.early_stopping_patience`), training stops early.
 
 #### Evaluation
 
