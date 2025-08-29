@@ -230,7 +230,7 @@ def augment():
 ```
 
 
-### Implement Your Own Architectures
+### Add Your Own Architecture
 The current version of the pipeline **only supports PyTorch model architectures and models compatible with that**, like Timm models.
 Just like the datasets the model architectures follow the same folder structure of 
 ```
@@ -985,5 +985,6 @@ this function does ....
 #### def find_terminal_command()
 
 #### def tensorboard_command()
+
 
 #### def start_user_interface()
