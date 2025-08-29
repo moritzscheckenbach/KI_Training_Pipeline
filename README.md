@@ -643,75 +643,79 @@ flowchart LR
 ```
 
 #### Template
-
 ```
 """
-Template Model for the Training Pipeline
+Template Model Architecture for the Training Pipeline
+
+You can use this template by copying it and personalize the used object detection model or you can create your own model architecture in a seperate class and call it in the get_model function.
 
 How to use:
 - Copy this file into model_architecture/<task>/ (classification, object_detection, segmentation)
-- Rename the file to something descriptive (e.g., "fasterrcnn_mynet.py").
-- Implement your own model inside build_model() or build_model_tr().
+- Rename the file to something descriptive
+- Implement your own model inside get_model()
 """
 
 import torch
-import torch.nn as nn
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
+
+#######################################################
+#  IMPLEMENT YOUR OWN MODEL CLASS HERE
+#######################################################
 
 
-# =========================================================
-# Build fresh model
-# =========================================================
-def build_model(num_classes: int, pretrained: bool = False) -> nn.Module:
-    """
-    Build and return a new model instance.
+#######################################################
+# CALL THE MODEL IN THE PREFFERED CONFIGURATION HERE
+#######################################################
 
-    Args:
-        num_classes (int): Number of output classes (for detection include background!)
-        pretrained (bool): If True, load pretrained backbone (e.g. from torchvision or timm)
+def get_model(num_classes: int, pretrained: bool = True):
+    if pretrained:
+        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+        model = fasterrcnn_resnet50_fpn(weights=weights, min_size=224, max_size=512)
+    else:
+        model = fasterrcnn_resnet50_fpn(weights=None, weights_backbone=None, min_size=224, max_size=512)
 
-    Returns:
-        torch.nn.Module: Model ready for training
-    """
-    # Example: simple CNN classifier (replace with your own model)
-    model = nn.Sequential(
-        nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.AdaptiveAvgPool2d((1, 1)),
-        nn.Flatten(),
-        nn.Linear(32, num_classes),
-    )
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
 
 
-# =========================================================
-# Input size helper
-# =========================================================
-def get_input_size() -> tuple[int, int]:
-    """
-    Define the input image size expected by the model.
-    This helps the pipeline resize datasets correctly.
+#######################################################
+# FUNCTIONS EXPECTED BY THE PIPELINE
+#######################################################
 
-    Returns:
-        (width, height): tuple of input dimensions
-    """
-    return 224, 224  # Change to match your model
-    
+def build_model(num_classes: int):
+    # "Fresh model" without Pretrained
+    return get_model(num_classes=num_classes, pretrained=False)
 
 
-# =========================================================
-# Quick test (run this file directly)
-# =========================================================
+def get_input_size():
+    # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
+    return 224, 224 # here set to 224, 224 to improve training time and storage
+
+
+def get_model_need():
+    return "Tensor" # either "Tensor" or "List"
+
+
+#######################################################
+# OPTIONAL: FUNCTIONALITY TEST OF MODEL
+#######################################################
 if __name__ == "__main__":
-    model = build_model(num_classes=10, pretrained=False)
-    print("Template model created successfully")
+    model = build_model(num_classes=20)
+    model.eval()
+    dummy_input = torch.randn(1, 3, 416, 416)
+    output = model(dummy_input)
+    print("fasterRCNN_001Resnet Model loaded successfully!")
+    print(f"Input size: {get_input_size()}")
+    print(f"Dummy output: {output}")
 
-    dummy = torch.randn(1, 3, 224, 224)
-    out = model(dummy)
-    print(f"Dummy input shape: {dummy.shape}")
-    print(f"Dummy output shape: {out.shape}")
 ```
+
 
 #### Optimizer
 
