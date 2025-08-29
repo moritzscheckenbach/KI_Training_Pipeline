@@ -14,6 +14,10 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
+import streamlit.components.v1 as components
+import shutil
+import socket
+
 # =========================
 # Configuration Variables
 # =========================
@@ -486,10 +490,123 @@ with col2:
 # ========= Live Log Anzeige =========
 if "log_path" in st.session_state:
     lp = Path(st.session_state["log_path"])
-    with st.expander("Training logs (tail)"):
+    with st.expander("Training logs (tail)", expanded=True):
         st.caption(str(lp.resolve()))
+
+        # Jede Sekunde neu laden
+        st_autorefresh = st.experimental_rerun
+        st_autorefresh(interval=1000, limit=None, key="logrefresh")
+
         st.code(_tail_file(lp), language="bash")
-        # Optional: Auto-Refresh alle 2s aktivieren (kommentiere IN oder AUS)
-        # st.experimental_rerun() nicht verwenden, sonst Endlosschleife.
-        if st.button("Refresh logs"):
-            pass  # Streamlit rerun triggert automatisch und lädt neu
+
+# =========================
+# TensorBoard Integration  
+# =========================
+# -------- TensorBoard Helpers --------
+def _find_trained_tb_dirs(task_root: Path) -> list[tuple[str, str]]:
+    """
+    Scannt trained_models/<task>/*/tensorboard und gibt [(Label, Logdir), ...] zurück.
+    Label ist 'experiment_name  (relativer Pfad)'.
+    """
+    options = []
+    if not task_root.exists():
+        return options
+    for exp in sorted(task_root.iterdir()):
+        tb_dir = exp / "tensorboard"
+        if tb_dir.is_dir():
+            label = f"{exp.name}  ({tb_dir.relative_to(Path.cwd())})"
+            options.append((label, str(tb_dir)))
+    return options
+
+def _get_free_port(preferred: int = 6006) -> int:
+    # nimmt preferred, falls frei – sonst sucht er einen freien OS-Port
+    def port_free(p: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                s.bind(("0.0.0.0", p))
+                return True
+            except OSError:
+                return False
+    if port_free(preferred):
+        return preferred
+    # irgendeinen freien Port nehmen
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        return s.getsockname()[1]
+
+def _kill_process(pid: int):
+    try:
+        import psutil  # optional nice kill
+        p = psutil.Process(pid)
+        p.terminate()
+    except Exception:
+        try:
+            if os.name == "nt":
+                subprocess.run(["taskkill", "/PID", str(pid), "/F"], check=False)
+            else:
+                subprocess.run(["kill", "-9", str(pid)], check=False)
+        except Exception:
+            pass
+
+# ====== UI: TensorBoard Steuerung ======
+st.markdown("---")
+st.subheader("TensorBoard")
+
+# 1) Experimente automatisch listen (pro ausgewähltem Task)
+task_root = Path("trained_models") / task  # 'task' hast du oben schon (classification/object_detection/segmentation)
+tb_choices = _find_trained_tb_dirs(task_root)
+
+if not shutil.which("tensorboard"):
+    st.warning("TensorBoard ist nicht installiert. `pip install tensorboard`")
+elif not tb_choices:
+    st.info(f"Keine TensorBoard-Logs in `{task_root}` gefunden.")
+else:
+    labels = [lab for lab, _ in tb_choices]
+    default_idx = 0
+    sel_label = st.selectbox("Wähle Experiment (Logdir):", labels, index=default_idx)
+    sel_logdir = dict(tb_choices)[sel_label]
+
+    # Port merken/steuern
+    if "tb_pid" not in st.session_state:
+        st.session_state["tb_pid"] = None
+    if "tb_port" not in st.session_state:
+        st.session_state["tb_port"] = None
+    if "tb_logdir" not in st.session_state:
+        st.session_state["tb_logdir"] = None
+
+    colA, colB, colC = st.columns([1,1,2])
+    with colA:
+        if st.button("TensorBoard starten", type="primary"):
+            # ggf. alten Prozess beenden
+            if st.session_state["tb_pid"]:
+                _kill_process(st.session_state["tb_pid"])
+                st.session_state["tb_pid"] = None
+
+            port = _get_free_port(6006)
+            # --bind_all ist wichtig im Docker, damit der Host/iframe zugreifen kann
+            proc = subprocess.Popen(
+                ["tensorboard", "--logdir", sel_logdir, "--port", str(port), "--bind_all"],
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=Path.cwd()
+            )
+            st.session_state["tb_pid"] = proc.pid
+            st.session_state["tb_port"] = port
+            st.session_state["tb_logdir"] = sel_logdir
+            st.success(f"TensorBoard läuft auf http://localhost:{port}  (PID {proc.pid})")
+
+    with colB:
+        if st.session_state.get("tb_pid") and st.button("Stop"):
+            _kill_process(st.session_state["tb_pid"])
+            st.session_state["tb_pid"] = None
+            st.session_state["tb_port"] = None
+            st.session_state["tb_logdir"] = None
+            st.info("TensorBoard gestoppt.")
+
+    with colC:
+        if st.session_state.get("tb_pid"):
+            st.caption(f"Logdir: {st.session_state['tb_logdir']}")
+            st.caption(f"Port: {st.session_state['tb_port']}")
+
+    # 2) iFrame einbetten, wenn läuft
+    if st.session_state.get("tb_pid") and st.session_state.get("tb_port"):
+        components.iframe(f"http://localhost:{st.session_state['tb_port']}", height=900, scrolling=True)
