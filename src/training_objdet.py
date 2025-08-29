@@ -195,6 +195,24 @@ def main(cfg: AIPipelineConfig):
 def setup_experiment_dir(timestamp: str, model_type: str, model_name: str, transfer_learning_enabled: bool) -> str:
     """
     Setup experiment directory structure
+
+    Parameters
+    ----------
+    timestamp : str
+        The timestamp for the experiment.
+    model_type : str
+        The type of the model (e.g., "yolo", "faster_rcnn").
+    model_name : str
+        The name of the model (e.g., "yolo_v5", "faster_rcnn_resnet50").
+    transfer_learning_enabled : bool
+        Whether transfer learning is enabled.
+
+    Returns
+    -------
+    experiment_dir : str
+        The path to the experiment directory.
+    experiment_name : str
+        The name of the experiment.
     """
     if transfer_learning_enabled:
         experiment_name = f"{timestamp}_{model_name}_transfer"
@@ -213,6 +231,18 @@ def setup_experiment_dir(timestamp: str, model_type: str, model_name: str, trans
 def setup_logger(experiment_dir: str, debug_mode: bool) -> str:
     """
     Setup logger and return log file path
+
+    Parameters
+    ----------
+    experiment_dir : str
+        The directory where experiment logs will be saved.
+    debug_mode : bool
+        Whether to enable debug mode for logging.
+
+    Returns
+    -------
+    log_file_path : str
+        The path to the log file.
     """
     logger_level = "DEBUG" if debug_mode else "INFO"
 
@@ -227,7 +257,17 @@ def setup_logger(experiment_dir: str, debug_mode: bool) -> str:
 
 def load_model(cfg: AIPipelineConfig):
     """
-    Load model based on configuration
+    Load model based on configuration^
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object containing model and dataset settings.
+
+    Returns
+    -------
+    Tuple[torch.nn.Module, ModuleType, str]
+        The loaded model, model architecture module, and model name.
     """
     model_type = cfg.model.type
     try:
@@ -256,6 +296,20 @@ def load_model(cfg: AIPipelineConfig):
 def setup_transforms(cfg: AIPipelineConfig, model_architecture):
     """
     Setup data transforms and augmentations
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object containing model and dataset settings.
+    model_architecture : ModuleType
+        The imported model architecture module.
+
+    Returns
+    -------
+    v2_train_tf : COCOWrapper
+        The training transform wrapper for the COCO dataset.
+    v2_eval_tf : COCOWrapper
+        The evaluation transform wrapper for the COCO dataset.
     """
     if cfg.model.transfer_learning.enabled:
         inputsize_x, inputsize_y = model_architecture.get_input_size(cfg=cfg)
@@ -303,7 +357,21 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
 
     # ---------- HELPER FUNCTIONS ----------
     def _build_full_dataset(transform, img_id_start):
-        """Build a full dataset from the single folder for auto-splitting."""
+        """
+        Build a full dataset from the single folder for auto-splitting.
+
+        Parameters
+        ----------
+        transform : callable
+            The transformation function to apply to the dataset.
+        img_id_start : int
+            The starting image ID for the dataset.
+
+        Returns
+        -------
+        Dataset : YoloDataset, CocoDataset or PascalDataset
+            The constructed dataset.
+        """
         if dataset_type == "Type_COCO":
             if auto_split:
                 root = f"{dataset_root}dataset/"
@@ -345,7 +413,25 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
             raise ValueError(f"Unknown dataset_type: {dataset_type}")
 
     def _split_lengths(n, ratios):
-        """Ensure that the sum of lengths equals n (correction of rounding errors)."""
+        """
+        Ensure that the sum of lengths equals n (correction of rounding errors).
+
+        Parameters
+        ----------
+        n : int
+            The total number of samples.
+        ratios : tuple
+            A tuple containing the train, validation, and test split ratios.
+
+        Returns
+        -------
+        l_tr : int
+            The adjusted length for the training split.
+        l_va : int
+            The adjusted length for the validation split.
+        l_te : int
+            The adjusted length for the test split.
+        """
         tr, va, te = ratios
         l_tr = int(math.floor(n * tr))
         l_va = int(math.floor(n * va))
@@ -435,7 +521,27 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
 
 def create_dataloaders(cfg: AIPipelineConfig, train_dataset, val_dataset, test_dataset):
     """
-    Create dataloaders from datasets
+    Create dataloaders from datasets.
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    train_dataset : Dataset
+        The training dataset.
+    val_dataset : Dataset
+        The validation dataset.
+    test_dataset : Dataset
+        The test dataset.
+
+    Returns
+    -------
+    train_dataloader : DataLoader
+        The DataLoader for the training dataset.
+    val_dataloader : DataLoader
+        The DataLoader for the validation dataset.
+    test_dataloader : DataLoader
+        The DataLoader for the test dataset.
     """
     debug_mode = cfg.training.debug_mode
 
@@ -456,6 +562,16 @@ def create_dataloaders(cfg: AIPipelineConfig, train_dataset, val_dataset, test_d
 def setup_device(model):
     """
     Setup device for training (gpu/cpu)
+
+    Parameters
+    ----------
+    model : nn.Module
+        The object detection model.
+
+    Returns
+    -------
+    device : torch.device
+        The device on which the model is located.
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -470,6 +586,23 @@ def setup_device(model):
 def setup_optimizer(cfg: AIPipelineConfig, model):
     """
     Setup optimizer based on configuration
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+
+    Returns
+    -------
+    optimizer : Optimizer
+        The optimizer for model training.
+
+    Returns
+    -------
+    optimizer : Optimizer
+        The optimizer for model training.
     """
     if cfg.model.transfer_learning.enabled and "backbone_lr_multiplier" in cfg.model.transfer_learning.lr:
         backbone_lr = cfg.training.learning_rate * cfg.model.transfer_learning.lr.backbone_lr_multiplier
@@ -518,6 +651,20 @@ def setup_optimizer(cfg: AIPipelineConfig, model):
 def setup_scheduler(cfg: AIPipelineConfig, optimizer):
     """
     Setup learning rate scheduler based on configuration
+
+    parameters
+    ----------
+    optimizer : Optimizer
+        The optimizer for model training.
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+
+    Returns
+    -------
+    scheduler : _LRScheduler
+        The learning rate scheduler.
+    use_scheduler : bool
+        Whether the scheduler is being used.
     """
     scheduler_module = cfg.scheduler.file
     if scheduler_module:
@@ -536,6 +683,15 @@ def setup_scheduler(cfg: AIPipelineConfig, optimizer):
 def log_model_parameters(model, writer, epoch):
     """
     Log model parameters to Tensorboard once per epoch
+
+    Parameters
+    ----------
+    model : nn.Module
+        The object detection model.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    epoch : int
+        The current epoch number.
     """
     for name, p in model.named_parameters():
         writer.add_histogram(f"Grads/{name}", p.grad.detach().cpu().numpy(), epoch)
@@ -544,6 +700,32 @@ def log_model_parameters(model, writer, epoch):
 def train_one_epoch(cfg: AIPipelineConfig, model, train_dataloader, optimizer, device, global_step, writer, model_need):
     """
     Train model for one epoch
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+    train_dataloader : DataLoader
+        The DataLoader for the training dataset.
+    optimizer : Optimizer
+        The optimizer for model training.
+    device : torch.device
+        The device to run the model on.
+    global_step : int
+        The global training step.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    model_need : str
+        The input format required by the model.
+
+    Returns
+    -------
+    avg_train_loss : float
+        The average training loss.
+    global_step : int
+        The global training step.
     """
     model.train()
     train_loss = 0.0
@@ -596,6 +778,28 @@ def train_one_epoch(cfg: AIPipelineConfig, model, train_dataloader, optimizer, d
 def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, device, writer, epoch, model_need, mode):
     """
     Log visualizations to TensorBoard
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+    images : List[Tensor]
+        The input images.
+    processed_targets : List[Tensor]
+        The processed target tensors.
+    device : torch.device
+        The device to run the model on.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    epoch : int
+        The current epoch number.
+    model_need : str
+        The input format required by the model.
+    mode : str
+        The mode of the data ("Train" or "Valid").
+
     """
     with torch.no_grad():
         model.eval()
@@ -617,6 +821,30 @@ def log_visualizations(cfg: AIPipelineConfig, model, images, processed_targets, 
 def validate_model(cfg: AIPipelineConfig, model, val_dataloader, device, writer, epoch, model_need):
     """
     Validate model and log results
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+    val_dataloader : DataLoader
+        The DataLoader for the validation dataset.
+    device : torch.device
+        The device to run the model on.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    epoch : int
+        The current epoch number.
+    model_need : str
+        The input format required by the model.
+
+    Returns
+    -------
+    avg_val_loss : float
+        The average validation loss.
+    loss_dict : dict
+        The dictionary containing the loss components.
     """
     logger.info("🧪 Starting val evaluation (loss)")
     model.train()
@@ -639,20 +867,42 @@ def validate_model(cfg: AIPipelineConfig, model, val_dataloader, device, writer,
 
 def evaluate_coco_metrics(cfg: AIPipelineConfig, model, val_dataloader, device, writer, epoch, model_need):
     """
-    Evaluate model using COCO metrics
+    Evaluate model using COCO metrics.
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+    val_dataloader : DataLoader
+        The DataLoader for the validation dataset.
+    device : torch.device
+        The device to run the model on.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    epoch : int
+        The current epoch number.
+    model_need : str
+        The input format required by the model.
+
+    Returns
+    -------
+    np.ndarray
+        The confusion matrix.
     """
 
-    def _get(m: dict, key: str, default=None):
-        return m[key] if (m is not None and key in m) else default
+    def _get(metric: dict, key: str, default=None):
+        return metric[key] if (metric is not None and key in metric) else default
 
-    def _get_float(m: dict, key: str):
-        v = _get(m, key, None)
+    def _get_float(metric: dict, key: str):
+        value = _get(metric, key, None)
         try:
-            return float(v) if v is not None else None
+            return float(value) if value is not None else None
         except Exception:
             return None
 
-    m = evaluate_coco_from_loader(
+    metrics = evaluate_coco_from_loader(
         model=model,
         data_loader=val_dataloader,
         device=device,
@@ -660,15 +910,15 @@ def evaluate_coco_metrics(cfg: AIPipelineConfig, model, val_dataloader, device, 
         input_format=model_need,
     )
 
-    if m is not None:
+    if metrics is not None:
         # log overall metrics
-        for k in ("AP", "AP50", "AP75", "AP_small", "AP_medium", "AP_large", "AR_1", "AR_10", "AR_100", "AR_small", "AR_medium", "AR_large"):
-            v = _get_float(m, k)
-            if v is not None and not (isinstance(v, float) and (v != v)):  # kein NaN
-                writer.add_scalar(f"COCO/{k}", v, epoch)
+        for metric_name in ("AP", "AP50", "AP75", "AP_small", "AP_medium", "AP_large", "AR_1", "AR_10", "AR_100", "AR_small", "AR_medium", "AR_large"):
+            value = _get_float(metrics, metric_name)
+            if value is not None and not (isinstance(value, float) and (value != value)):  # kein NaN
+                writer.add_scalar(f"COCO/{metric_name}", value, epoch)
 
         # log per-class metrics
-        per_class = _get(m, "per_class", {}) or {}
+        per_class = _get(metrics, "per_class", {}) or {}
         pc_AP = per_class.get("AP", [])
         pc_AR = per_class.get("AR", [])
         cat_ids = per_class.get("cat_ids", list(range(len(pc_AP))))  # Fallback
@@ -686,17 +936,33 @@ def evaluate_coco_metrics(cfg: AIPipelineConfig, model, val_dataloader, device, 
                     writer.add_scalar(f"COCO/PerClass/AP/{cat_id}", float(ap), epoch)
                 if ar == ar:
                     writer.add_scalar(f"COCO/PerClass/AR/{cat_id}", float(ar), epoch)
-
         writer.flush()
     else:
         logger.warning("COCO evaluation got no result (m is None) - skipping TB logging.")
 
-    return m
+    return metrics
 
 
 def save_checkpoint(model, optimizer, epoch, avg_train_loss, avg_val_loss, experiment_dir, is_best=False):
     """
     Save model checkpoint.
+
+    Parameters
+    ----------
+    model : nn.Module
+        The object detection model.
+    optimizer : Optimizer
+        The optimizer used for training.
+    epoch : int
+        The current epoch number.
+    avg_train_loss : float
+        The average training loss.
+    avg_val_loss : float
+        The average validation loss.
+    experiment_dir : str
+        The directory to save the experiment files.
+    is_best : bool
+        Whether this is the best model so far.
     """
     checkpoint = {
         "epoch": epoch,
@@ -724,7 +990,29 @@ def save_checkpoint(model, optimizer, epoch, avg_train_loss, avg_val_loss, exper
 
 def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device, writer, num_classes, model_need):
     """
-    Build confusion matrix for test set
+    Build confusion matrix for test set.
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    model : nn.Module
+        The object detection model.
+    test_dataloader : DataLoader
+        The DataLoader for the test dataset.
+    device : torch.device
+        The device to run the model on.
+    writer : SummaryWriter
+        The TensorBoard writer.
+    num_classes : int
+        The number of classes in the dataset.
+    model_need : str
+        The input format required by the model.
+
+    Returns
+    -------
+    np.ndarray
+        The confusion matrix.
     """
     logger.info("🧪 Building confusion matrix on test set")
     model.eval()
@@ -761,7 +1049,7 @@ def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device
     ax.set_xlabel("Predicted class", fontsize=12)
     ax.set_ylabel("Ground truth class", fontsize=12)
 
-    # Text in jede Kachel schreiben
+    # Write text in each cell
     for i in range(cm_ext.shape[0]):
         for j in range(cm_ext.shape[1]):
             text_color = "white" if cm_ext[i, j] > cm_ext.max() / 2 else "black"
@@ -781,7 +1069,27 @@ def build_confusion_matrix(cfg: AIPipelineConfig, model, test_dataloader, device
 def create_experiment_summary(cfg: AIPipelineConfig, experiment_name, model_name, timestamp, total_epochs, best_val_loss, avg_test_loss, experiment_dir):
     """
     Create and save experiment summary
+
+    Parameters
+    ----------
+    cfg : AIPipelineConfig
+        The configuration object for the AI pipeline.
+    experiment_name : str
+        The name of the experiment.
+    model_name : str
+        The name of the model.
+    timestamp : str
+        The timestamp of the experiment.
+    total_epochs : int
+        The total number of epochs trained.
+    best_val_loss : float
+        The best validation loss achieved.
+    avg_test_loss : float
+        The average test loss.
+    experiment_dir : str
+        The directory to save the experiment files.
     """
+
     clean_config = OmegaConf.to_container(cfg, resolve=True)
     summary = {
         "experiment_name": experiment_name,
@@ -801,7 +1109,19 @@ def create_experiment_summary(cfg: AIPipelineConfig, experiment_name, model_name
 # HELPER FUNCTIONS
 # =============================================================================
 def collate_fn(batch):
-    """Detection-collate: returns lists, compatible with variable number of boxes."""
+    """
+    Detection-collate: returns lists, compatible with variable number of boxes.
+
+    Parameters
+    ----------
+    batch : List[Tuple[torch.Tensor, Dict[str, torch.Tensor]]]
+        A list of tuples, each containing an image tensor and its corresponding target dictionary.
+
+    Returns
+    -------
+    Tuple[List[torch.Tensor], List[Dict[str, torch.Tensor]]]
+        A tuple containing a list of image tensors and a list of target dictionaries.
+    """
     images = []
     targets = []
     for img, target in batch:
@@ -825,6 +1145,19 @@ def clear_gpu_cache():
 
 
 def coco_xywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
+    """
+    Convert Bounding Box COCO format [x,y,w,h] to [x1,y1,x2,y2].
+
+    Parameters
+    ----------
+    boxes : torch.Tensor
+        The input boxes in [x,y,w,h] format.
+
+    Returns
+    -------
+    torch.Tensor
+        The converted boxes in [x1,y1,x2,y2] format.
+    """
     # boxes: [N,4] in [x,y,w,h] -> [x1,y1,x2,y2]
     if boxes.numel() == 0:
         return boxes
@@ -835,6 +1168,23 @@ def coco_xywh_to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
 
 
 def draw_boxes_on_img(img: torch.Tensor, boxes: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    """
+    Draw bounding boxes on an image tensor.
+
+    Parameters
+    ----------
+    img : torch.Tensor
+        The input image tensor to draw boxes on.
+    boxes : torch.Tensor
+        The bounding boxes to draw (in xyxy format).
+    labels : torch.Tensor
+        The labels corresponding to each bounding box.
+
+    Returns
+    -------
+    torch.Tensor
+        The image tensor with drawn bounding boxes.
+    """
     # img: CHW uint8, boxes: xyxy
     colors = ["red", "blue", "green", "yellow", "purple", "orange", "cyan", "magenta"]
     box_colors = [colors[int(l) % len(colors)] for l in labels]
@@ -844,7 +1194,20 @@ def draw_boxes_on_img(img: torch.Tensor, boxes: torch.Tensor, labels: torch.Tens
 
 
 def tensor_to_uint8(img: torch.Tensor) -> torch.Tensor:
-    """Convert a tensor to uint8 format for visualization with improved range handling."""
+    """
+    Convert a tensor to uint8 format for visualization with improved range handling.
+
+    Parameters
+    ----------
+    img : torch.Tensor
+        The input image tensor to convert.
+
+    Returns
+    -------
+    torch.Tensor
+        The converted image tensor in uint8 format.
+    """
+
     x = img.detach().cpu()
 
     # Already in uint8 format
@@ -868,40 +1231,61 @@ def tensor_to_uint8(img: torch.Tensor) -> torch.Tensor:
 
 
 def make_gt_vs_pred_grid(imgs_vis: List[torch.Tensor], targets_list, preds_list, debug_mode=False):
-    """Create a grid of ground truth vs prediction images with better error handling."""
+    """
+    Create a grid of ground truth vs prediction images with better error handling.
+
+    Parameters
+    ----------
+    imgs_vis : List[torch.Tensor]
+        List of images to visualize.
+
+    targets_list : List[Dict]
+        List of ground truth (gt) target dictionaries.
+
+    preds_list : List[Dict]
+        List of predicted target (pred) dictionaries.
+
+    debug_mode : bool
+        Whether to enable debug mode for additional checks.
+
+    Returns
+    -------
+    torch.Tensor
+        A grid of ground truth vs prediction images.
+    """
     panels = []
 
-    for b_idx in range(len(imgs_vis)):
-        img = imgs_vis[b_idx]
+    for box_index in range(len(imgs_vis)):
+        img = imgs_vis[box_index]
 
         # Skip invalid images
         if img is None or img.numel() == 0 or torch.isnan(img).any():
-            logger.warning(f"Skipping invalid image at index {b_idx}")
+            logger.warning(f"Skipping invalid image at index {box_index}")
             continue
 
         # Convert to uint8 for visualization
         img_u8 = tensor_to_uint8(img)
 
         if debug_mode:
-            _check_img_range(img=img_u8, img_id=b_idx)
+            _check_img_range(img=img_u8, img_id=box_index)
 
         # Process GT
-        gt_t = targets_list[b_idx]
+        gt_t = targets_list[box_index]
         gt_boxes_xyxy = gt_t["boxes"].detach().cpu()
         gt_labels = gt_t["labels"].detach().cpu()
         gt_img = draw_boxes_on_img(img_u8, gt_boxes_xyxy, gt_labels)
 
         if debug_mode:
-            _check_img_range(img=gt_img, img_id=b_idx)
+            _check_img_range(img=gt_img, img_id=box_index)
 
         # Process predictions
-        p = preds_list[b_idx]
+        p = preds_list[box_index]
         p_boxes = p.get("boxes", torch.empty((0, 4))).detach().cpu()
         p_labels = p.get("labels", torch.empty((0,), dtype=torch.long)).detach().cpu()
         pred_img = draw_boxes_on_img(img_u8, p_boxes, p_labels)
 
         if debug_mode:
-            _check_img_range(img=pred_img, img_id=b_idx)
+            _check_img_range(img=pred_img, img_id=box_index)
 
         # Create side-by-side panel
         panel = torch.cat([gt_img, pred_img], dim=2)
@@ -918,16 +1302,44 @@ def make_gt_vs_pred_grid(imgs_vis: List[torch.Tensor], targets_list, preds_list,
 
 
 def grad_global_norm(parameters) -> float:
-    tot_sq = 0.0
+    """
+    Compute the global norm of gradients for a list of parameters.
+
+    Parameters
+    ----------
+        parameters : list
+            List of model parameters.
+
+    Returns
+    -------
+        float
+            Global norm of gradients.
+    """
+    total_squared = 0.0
     for p in parameters:
         if p.grad is not None:
             g = p.grad.detach()
-            tot_sq += float(g.norm(2).item() ** 2)
-    return sqrt(tot_sq)
+            total_squared += float(g.norm(2).item() ** 2)
+    return sqrt(total_squared)
 
 
 def iou_matrix(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    # a,b: [Na,4],[Nb,4] in xyxy
+    """
+    Compute the Intersection over Union (IoU) matrix between two sets of boxes.
+
+    Parameters
+    ----------
+        a : torch.Tensor
+            Ground truth boxes, shape [Na, 4] in xyxy format.
+
+        b : torch.Tensor
+            Predicted boxes, shape [Nb, 4] in xyxy format.
+
+    Returns
+    -------
+        torch.Tensor
+            IoU matrix, shape [Na, Nb].
+    """
     if a.numel() == 0 or b.numel() == 0:
         return torch.zeros((a.shape[0], b.shape[0]))
     lt = torch.max(a[:, None, :2], b[:, :2])  # [Na,Nb,2]
@@ -942,9 +1354,31 @@ def iou_matrix(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 def confusion_matrix_detection(preds, gts, num_classes: int, iou_thr: float = 0.5, score_thr: float = 0.5) -> np.ndarray:
     """
-    Einfache CM für Detection:
-    - Greedy 1:1 Matching per IOU
+    Simple Confusion Matrix for Detection:
+    - Greedy 1:1 Matching by IOU (Intersection over Union)
     - Matrix: GT x Pred; right margin column=FN per GT class; bottom margin row=FP per Pred class
+
+    Parameters
+    ---
+        preds : list
+            List of predicted bounding boxes and labels.
+
+        gts : list
+            List of ground truth bounding boxes and labels.
+
+        num_classes : int
+            Number of object classes.
+
+        iou_thr : float
+            IoU threshold for considering a detection as positive (default: 0.5).
+
+        score_thr : float
+            Score threshold for considering a detection (default: 0.5).
+
+    Returns
+    ---
+        cm : np.ndarray
+            Confusion matrix of shape (num_classes, num_classes).
     """
     cm = np.zeros((num_classes, num_classes), dtype=np.int64)
     fn_per_class = np.zeros(num_classes, dtype=np.int64)
@@ -1002,6 +1436,31 @@ def confusion_matrix_detection(preds, gts, num_classes: int, iou_thr: float = 0.
 
 @torch.no_grad()
 def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input_format="List"):
+    """
+    Evaluate the model on the COCO dataset using a data loader.
+
+    Parameters
+    ---
+        model : nn.Module
+            The object detection model to evaluate.
+
+        data_loader : DataLoader
+            The data loader for the COCO dataset.
+
+        device : torch.device
+            The device to run the evaluation on.
+
+        iou_type : str
+            The type of IoU to use for evaluation (default: "bbox").
+
+        input_format : str
+            The format of the input data ("List" or "Tensor").
+
+    Returns
+    ---
+        results : list
+            The evaluation results for each image.
+    """
     model.eval()
 
     results = []
@@ -1048,7 +1507,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
 
             coco_images.append({"id": image_id, "width": int(W), "height": int(H)})
 
-            # ---------- Ground Truth (XYWH bereits gegeben) ----------
+            # Ground Truth (XYWH already given)
             gt_boxes = torch.as_tensor(target["boxes"], dtype=torch.float32)  # expects XYWH
             gt_xywh = gt_boxes.cpu().numpy()
             gt_labels = torch.as_tensor(target["labels"]).cpu().numpy().astype(int)
@@ -1081,7 +1540,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
                 )
                 ann_id += 1
 
-            # ---------- Predictions (typisch XYXY -> XYWH) ----------
+            # Predictions (typically XYXY -> XYWH)
             if output is None or ("boxes" not in output):
                 logger.warning(f"Model output for image {image_id} is None or missing 'boxes'. Skipping this image.")
                 continue
@@ -1110,7 +1569,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
                     }
                 )
 
-    # ---------- COCO GT-Objekt ----------
+    # COCO GT-Object
     coco_gt_dict = {
         "info": {"description": "Autogenerated GT", "version": "1.0", "year": 2025, "contributor": "Wes", "date_created": "2025-08-19"},
         "images": coco_images,
@@ -1121,7 +1580,7 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
     coco_gt.dataset = coco_gt_dict
     coco_gt.createIndex()
 
-    # ---------- COCOeval ----------
+    # COCOeval
     logger.debug(f"Type Model output: {type(outputs)}")
     logger.debug(f"Model output: {outputs}\n\n")
     logger.debug(f"Type Results: {type(results)}")
@@ -1169,8 +1628,37 @@ def evaluate_coco_from_loader(model, data_loader, device, iou_type="bbox", input
 
 
 def model_input_format(cfg, images, targets, device, model_need):
+    """
+    Prepare model inputs by converting images and targets to the required format.
+
+    Parameters
+    ---
+        cfg : dict
+            Configuration dictionary.
+
+        images : list of torch.Tensor
+            List of input images.
+
+        targets : list of dict
+            List of target dictionaries containing "boxes" and "labels".
+
+        device : torch.device
+            Device to which the tensors should be moved. Type cpu, gpu or cuda.
+
+        model_need : str
+            Specifies the required input format for the model ("Tensor" or "List").
+
+    Returns
+    ---
+        images : torch.Tensor
+            Processed images in the required format.
+
+        targets : list
+            Processed targets in the required format.
+    """
+
     def to_xyxy(boxes: torch.Tensor) -> torch.Tensor:
-        # Eingabe immer xywh -> Ziel xyxy
+        # Input is always xywh -> Target is xyxy
         return coco_xywh_to_xyxy(boxes)
 
     if model_need == "Tensor":
@@ -1225,9 +1713,17 @@ def model_input_format(cfg, images, targets, device, model_need):
 def _check_img_range(img, img_id="unknown"):
     """
     Check the range of an image tensor and log warnings for black images.
+
+    Parameters
+    ---
+        img : torch.Tensor, np.ndarray, or PIL.Image
+            Image to be checked.
+
+        img_id : str (default: unknown)
+            Identifier for the image (used in logging).
     """
     try:
-        # Tensor-Verarbeitung
+        # Tensor-Processing
         if isinstance(img, torch.Tensor):
             if img.dim() == 3 and img.shape[0] in [1, 3]:
                 min_val = img.min().item()
@@ -1236,7 +1732,7 @@ def _check_img_range(img, img_id="unknown"):
                 logger.warning(f"Unexpected tensor shape: {img.shape}")
                 return
 
-        # PIL Image-Verarbeitung
+        # PIL Image-Processing
         elif hasattr(img, "getextrema"):  # PIL Image
             extrema = img.getextrema()
             if isinstance(extrema[0], tuple):  # RGB or other multi-channel
@@ -1272,6 +1768,20 @@ def _check_img_range(img, img_id="unknown"):
 
 
 def debug_show(img, title="Debug Image", enable=False):
+    """
+    Plots a debug image.
+
+    Parameters
+    ---
+        img : torch.Tensor, np.ndarray, or PIL.Image
+            Image to be plotted.
+
+        title : string (optional, default: Debug Image) 
+            Adds a title to the plot.
+
+        enable : bool (optional, default: False) 
+            Whether to actually display the images.
+    """
     if not enable:
         return
     plt.figure()
@@ -1291,13 +1801,30 @@ def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10),
     """
     Display multiple images in a grid layout in a single window.
 
-    Args:
-        images: List of images (PIL Images or torch Tensors)
-        titles: Optional list of titles for each image
-        rows: Number of rows in grid (calculated automatically if None)
-        cols: Number of columns in grid (calculated automatically if None)
-        figsize: Figure size (width, height) in inches
-        enable: Whether to actually display the images (for easy disabling)
+    Parameters
+    ---
+        images : List of images (torch.Tensor, np.ndarray, or PIL.Image)
+            Images to be displayed.
+
+        titles : list of strings, Optional 
+            list of titles for each image
+
+        rows : int
+            Number of rows in the grid layout. (calculated automatically if None)
+
+        cols : int
+            Number of columns in the grid layout. (calculated automatically if None)
+
+        figsize : list of int, Figure size (width, height) in inches
+            Size of the figure to display the images.
+
+        enable : bool (optional, default: False)
+            Whether to actually display the images.
+
+    Returns
+    ---
+        fig : matplotlib.figure
+            Figure to be displayed.
     """
     if not enable:
         return
