@@ -1,6 +1,6 @@
 # AI Training Pipeline MFW
 
-## Quick Start
+## Quick Start Guide
 To use the AI Pipeline you need to have the dependencies installed
 
 - [Install dependencies](#installing-dependencies)
@@ -8,11 +8,13 @@ To use the AI Pipeline you need to have the dependencies installed
 - [Compare models](#compare-models)
 
 To make further changes in the Code go to:
+
 - [Advanced Options](#advanced-options) (for your own datasets, augmentations and model architectures)
 - [Dev Options](#dev-options) (for further changes)
 
 
 ## Installing Dependencies
+
 All dependencies can be installed or looked up using the `package_installer.py` script located in the src folder:
 ```
 # Navigate to the src folder
@@ -41,7 +43,7 @@ Build image:
 ```
 docker build -t ki-pipeline:cuda 
 ```
-Docker Compose Build: 
+Docker Compose Build:
 ```
 docker compose build
 ```
@@ -55,6 +57,7 @@ docker compose down
 ```
 
 ## Start Training
+
 To start the AI Pipeline you need to have the [dependencies](#installing-dependencies) installed.
 
 The pipeline workflow starts with launching the `training.py` file in the src folder
@@ -72,6 +75,7 @@ Excerpt of the configuration application
 
 
 ### Start Training Workflow
+
 ```mermaid
 flowchart TD
     Start([Start Application]) --> |User interface launches automatically| SelectTrainingSettings[Select your Training Settings]
@@ -103,6 +107,7 @@ SelectTrainingFile[Select Appropriate Training File]
 
 
 ## View Results
+
 After the training is completed you get an output like this:
 
 ![image](src/docs/images/completed_training_console.png)
@@ -111,7 +116,9 @@ You get a summary of where the data is stored and get the command to view the re
 ```
 tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
 ```
+
 ## Compare Models
+
 You can compare the tensorboard evaluation of multiple trained models via the model comparison.
 
 The comparison starts with launching the `compare.py` file in the src folder
@@ -130,15 +137,17 @@ If you are on Linux and have a terminal emulator installed you can start the ten
 If you are on Windows or have not the emulator installed you will have to manually copy paste the command in your terminal to start the comparison.
 
 ___
+
 ## Advanced Options
+
 To use tha AI Pipeline you need to have the dependencies installed
 
 1. [Add Your Own Dataset](#add-your-own-dataset)
 2. [Add Your Own Augmentation](#add-your-own-augmentation)
 3. [Add Your Own Architecture](#add-your-own-architecture)
 
-
 ### Add Your Own Dataset
+
 To add one of your own datasets you first need to know of which structure type your dataset is. With tools like roboflow you can export the dataset in any type you like, else you have to know the type of your dataset.
 
 The datastructure is simple and structured by task and type of the data.
@@ -190,8 +199,8 @@ num_classes: [number of classes in the dataset]
 ``` 
 For a more indebth look at how the dataset structure works it is recommended to consult the [Dataset Directories](#dataset-directories)
 
-
 ### Add Your Own Augmentation
+
 The current version of the pipeline **only supports augemntations written in `torchvision.transforms v2`** but support of `albumentations` is already planned
 
 To generate your own Augmentation just copy the template file, add your augmentation and rename it individually in the augmentation folder
@@ -199,7 +208,9 @@ To generate your own Augmentation just copy the template file, add your augmenta
 ```
 src/augmentations/{YourAugmentationFile}
 ```
+
 #### Augmentation Template
+
 ```
 import torch
 from torchvision.transforms import v2
@@ -231,12 +242,15 @@ def augment():
 
 
 ### Add Your Own Architecture
+
 The current version of the pipeline **only supports PyTorch model architectures and models compatible with that**, like Timm models.
-Just like the datasets the model architectures follow the same folder structure of 
+Just like the datasets the model architectures follow the same folder structure of
 ```
 src/model_architecture/{task}/{YourModelName}
 ```
+
 #### Folder Structure
+
 ```
 model_architecture/
 ├── classification/
@@ -260,7 +274,7 @@ model_architecture/
     └── mask_rcnn.py
 ```
 
-The architecture should follow standard PyTorch conventions. That means labeld Bounding-Boxes are expected to be in the XYXY-Convention opposed to other conventions like those of COCO, YOLO, etc. For the exact composition of the "targets" consult the [Trainings Data](#trainings-data) structure.
+The architecture should follow standard PyTorch conventions. That means labeld Bounding-Boxes are expected to be in the XYXY-Convention opposed to other conventions like those of COCO, YOLO, etc. For the exact composition of the "targets" consult the [Training Data](#training-data) structure.
 You can either:
 
 1. **Use existing PyTorch models** - Import and configure models directly from `torchvision.models` or other libraries like `timm`
@@ -280,7 +294,9 @@ These functions must be defined at the module level (not inside classes) to be p
 For a more indebth look at how the architecture structure works it is recommended to consult the [Directories](#model-architecture)
 
 ___
+
 ## Dev Options
+
 If you would like to view the code or change something in the pipeline make yourself familiar with the [internal pipeline structure](#internal-pipeline-structure).
 A Dictionary for every function in the code can be found [here](#function-dictionary)
 
@@ -295,7 +311,6 @@ At the moment you can easily implement new or change existing parts like:
 For further changes please make sure not to break anything and test your work extensively.
 **Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal (to be implemented) are transformed into the COCO-Format.
 For the exact composition of the data consult the [Dataloader directory](#dataloader-directories). Later when giving the images and targets to the model, the targets are transformed in XYXY Pytorch convention. The Predicitons of the model are then transformed back into the COCO-Format.
-
 
 ### Internal Pipeline Structure
 
@@ -312,7 +327,6 @@ For the exact composition of the data consult the [Dataloader directory](#datalo
 5. [Early Stopping](#early-stopping): Monitors validation performance and stops training if no improvement is seen after a set number of epochs (changable but not in config).
 6. [Evaluation](#evaluation): After training completes, the best model is evaluated on the test set to assess generalization performance.
 7. [Results](#results): Creates comprehensive experiment summary including metrics, confusion matrices, and TensorBoard visualizations.
-
 
 ```mermaid
 flowchart TD
@@ -367,6 +381,7 @@ flowchart TD
 ```
 
 #### Pipeline Directories
+
 The pipeline organizes all model architectures by task:
 
 ```
@@ -383,9 +398,11 @@ model_architecture/
 └── segmentation/
     └── ...
 ```
+
 To add a new model to the pipeline, save the file in the corresponding directory depending on the task it is designed for.
 
 ##### Dataset Directories
+
 The datastructure is simple and structured by task and type of the data.
 ```
 src/datasets/{task}/{type}/...
@@ -431,6 +448,7 @@ datasets/
 ```
 
 #### Dataloader Directories
+
 The Dataloader is supplying iterated batches of `(images, targets)´ in classic COCO convention.
 
 Images have the Type: List[torch.Tensor]; and the length of the batchsize.
@@ -441,14 +459,16 @@ value-range: [0,1]
 
 Targets have the Type: List[Dict] and have the same length as the Images (batchsize).
 Every entry is the coresponding annotations for the image:
-    "boxes": Tensor[n, 4]      
-    "labels": Tensor[n]       
-    "image_id": Tensor[1]      
-    "area": Tensor[n]        
-    "iscrowd": Tensor[n]
+
+    "boxes": Tensor[n, 4]  
+    "labels": Tensor[n]  
+    "image_id": Tensor[1]  
+    "area": Tensor[n]  
+    "iscrowd": Tensor[n]  
 With n being the number of objects in one image.
 
 ##### Experiment Directories
+
 ```
 trained_models/
 ├── classification/
@@ -471,11 +491,13 @@ trained_models/
 
 
 #### Model Architecture
+
 If you want to implement your own model or add another architecture to the pipeline, there are a few requirements to ensure compatibility.
 
-Follow PyTorch’s nn.Module conventions when implementing your own architecture. (Also see [Training Data](#trainings-data))
+Follow PyTorch’s nn.Module conventions when implementing your own architecture. (Also see [Training Data](#training-data))
 
 What the Pipeline Handles Automatically
+
 - Device placement .to(device) 
 - FP32 inputs in range [0,1]  (do not normalize inside the model unless explicitly documented)
 - Optimizer setup (optimizer.py + config)
@@ -483,8 +505,8 @@ What the Pipeline Handles Automatically
 - Checkpoint saving and TensorBoard logging
 - Data loading, resizing, and augmentation.
 
-
 Common pitfalls:
+
 - Wrong number of classes
     - For torchvision detection models, num_classes includes background. If you have K foreground classes, pass K+1.
 
@@ -493,7 +515,6 @@ Common pitfalls:
 
 - Forgetting eval/train modes
     - The trainer calls model.train() / model.eval(). Don’t override this flow inside your model.
-
 
 How things Connect:
 ```mermaid
@@ -527,6 +548,7 @@ flowchart LR
 ```
 
 ##### Template:
+
 ```
 """
 Template Model for the Training Pipeline
@@ -596,13 +618,12 @@ if __name__ == "__main__":
     print(f"Dummy output shape: {out.shape}")
 ```
 
-
-
 #### Optimizer
+
 In this part it will be explained how the Optimizer component is integrated into the KI_Pipeline, which optimizers are available, and how to add new ones. At a glance:
+
 - Config-driven, no code changes needed for most tuning.
 - Creates a PyTorch torch.optim.Optimizer from your model’s parameters and the pipeline config.
-
 
 The pipeline currently supports the following optimizers:
 
@@ -642,6 +663,7 @@ flowchart LR
 ```
 
 Date flow with Scheduler
+
 ```mermaid
 sequenceDiagram
     participant CFG as Config (YAML)
@@ -664,7 +686,28 @@ If you want to add a new optimizer, make sure that the config.yaml contains all 
 
 #### Scheduler
 
-#### Trainings Data
+The Scheduler is a critical component in the training pipeline that dynamically adjusts the learning rate during training. The learning rate is one of the most important hyperparameters in deep learning, as it controls how much the model weights are updated during each optimization step. The scheduler ensures that the learning rate adapts to the training progress, which can help the model converge faster and avoid overfitting.
+
+How it works: The scheduler interacts with the optimizer. After each epoch or based on specific metrics (like validation loss), the scheduler adjusts the learning rate according to its predefined strategy.
+
+Supported Schedulers:
+
+- StepLR: Reduces the learning rate by a factor (gamma) every step_size epochs.
+
+- MultiStepLR: Reduces the learning rate at specific milestone epochs.
+
+- ExponentialLR: Applies exponential decay to the learning rate.
+
+- CosineAnnealingLR: Gradually reduces the learning rate following a cosine curve.
+
+- ReduceLROnPlateau: Reduces the learning rate when a monitored metric (e.g., validation loss) stops improving.
+
+- Configuration: The scheduler is configured in the config.yaml file. Parameters like type, patience, factor, and min_lr can be customized.
+
+- Integration: During training, the scheduler is invoked after each epoch or when a specific condition is met. It works seamlessly with the optimizer to ensure efficient training.
+
+#### Training Data
+
 Depending on `model_need´ in the model architecture the training data given to the model can take two forms.
 
 For `model_need == "Tensor"`:
@@ -701,7 +744,6 @@ AR shows how many objects the model finds, regardless of precision.
 
 Per-class metrics help identify weaknesses for specific categories.
 
-
 #### Early Stopping
 
 During training, an early stopping mechanism monitors the validation loss to prevent overfitting:
@@ -716,14 +758,43 @@ Once the patience counter reaches the configured limit (`cfg.training.early_stop
 
 #### Evaluation
 
+The Evaluation phase is where the trained model's performance is assessed on a test dataset. This step is crucial for understanding how well the model generalizes to unseen data.
+
+Metrics:
+
+- AP (Average Precision): Measures the precision of predictions across different Intersection over Union (IoU) thresholds.
+
+- AR (Average Recall): Measures the fraction of ground-truth objects detected by the model.
+
+- Per-class Metrics: Provides detailed performance metrics for each class in the dataset.
+
+- Process:
+Load the best model checkpoint saved during training.
+Run inference on the test dataset.
+Compute evaluation metrics using the COCO evaluation protocol (for object detection tasks).
+
+- Visualization: The results are logged and visualized using TensorBoard, allowing users to analyze the model's performance in detail.
 
 #### Results
 
+The Results section provides a comprehensive summary of the training and evaluation process. It includes:
+
+- Performance Metrics: Key metrics like AP, AR, and loss values are reported.
+
+- Confusion Matrices: Visual representations of classification performance, showing how well the model distinguishes between different classes.
+
+- TensorBoard Visualizations: Logs and plots for training and validation metrics, enabling users to track the model's progress over time.
+
+- Model Checkpoints: Saved weights for the best-performing model and the last model from training.
+
+- Storage: All results are stored in the trained_models directory, organized by task and experiment name.
+
+This section is essential for comparing different models, fine-tuning hyperparameters, and selecting the best model for deployment.
 
 #### Logging
-The whole logging is done with loguru. For further information go to the [loguru documentation](https://loguru.readthedocs.io/en/stable/)
 
-
+The whole logging is done in a Console with loguru. For further information go to the [loguru documentation](https://loguru.readthedocs.io/en/stable/)
+The logging files will be saved after training.
 
 ## Pipeline Construction
 
@@ -738,21 +809,19 @@ The whole logging is done with loguru. For further information go to the [loguru
 | training.py | Starts an app to configure the training. Sets the layout standards. |  |
 | training_class.py | Executes the training | |
 
+## KI Training Pipeline – File Overview
 
-# KI Training Pipeline – Dateiübersicht
+This table shows which files **provide** and **requires** information as well as their main outputs.
 
-Diese Tabelle zeigt, welche Dateien welche Informationen **bereitstellen** und **benötigen**, sowie ihre Haupt-Outputs.
-
-| Datei / Ressource | Stellt bereit (für andere) | Benötigt / Erwartet | Typische Aufrufer | Haupt-Outputs |
+| File / Ressource | Provides (for others) | Requires / Expects | Typically called by | Main-Outputs |
 |-------------------|----------------------------|----------------------|-------------------|---------------|
-| **User_Interface.py** | GUI (Streamlit) für Konfiguration und Start von Trainingsläufen; erzeugt `conf/config.yaml`. | Zugriff auf Dataset-Ordner (`datasets/...`), `classes.yaml` (für `num_classes`), verfügbare Modelle im Ordner `model_architecture/`. | Nutzer (GUI-Interaktion). Ruft anschließend `training_objdet.py` auf. | `conf/config.yaml` mit allen Parametern. |
-| **config.py** | Definiert Hydra-Konfigurationsschema (`AIPipelineConfig`) inkl. Training, Scheduler, Optimizer, Augmentation, Model, Dataset. | Wird von Hydra geladen. Erwartet externe YAML-Configs. | `training_objdet.py`, `User_Interface.py`. | Konfigurationsobjekte für Training/Eval. |
-| **training_objdet.py** | Orchestriert Training/Eval: lädt Config, Datasets, Modell; Training-Loop mit Logging, TensorBoard, Checkpoints. | `conf/config.yaml`, `config.py` Schema, Dataset-Ordner (`train/`, `val/`, `test/` mit Annotations), `classes.yaml`, Modellmodule (`fasterRCNN_001Resnet.py`, `fasterrcnn_swin_timm.py`). | Wird durch `User_Interface.py` oder CLI gestartet. | Checkpoints (`best_model_weights.pth`), Logs (`training.log`), TensorBoard-Runs, `experiment_summary.yaml`. |
-| **fasterRCNN_001Resnet.py** | `build_model(num_classes)` für Faster R-CNN mit ResNet50-FPN Backbone. | torchvision (`fasterrcnn_resnet50_fpn`), `num_classes`. | `training_objdet.py`. | Initialisiertes Faster R-CNN-Modell. |
-| **fasterrcnn_swin_timm.py** | `build_model(num_classes)` für Faster R-CNN mit Swin-Backbone (über `timm`) + FPN. | `timm`, torchvision detection API, `num_classes`. | `training_objdet.py`. | Initialisiertes Faster R-CNN (Swin-Backbone). |
-| **Dataset-Ordner** (`train/`, `val/`, `test/`) | Bilder + Labels (COCO, YOLO, Pascal V1.0). | Korrektes Format (z. B. `train/_annotations.coco.json`). | `training_objdet.py` via Dataloader. | Eingabedaten für Training/Eval. |
-| **classes.yaml** | Enthält `num_classes` (und ggf. Klassenliste). | Muss konsistent mit Annotationen sein. | `User_Interface.py` (liest Anzahl Klassen), `training_objdet.py`. | Zahl der Klassen → für Model-Head. |
-
+| **User_Interface.py** | GUI (Streamlit) for configuration and start of training runs; generates `conf/config.yaml`. | Access to dataset folder (`datasets/...`), `classes.yaml` (for `num_classes`), available models in the `model_architecture/` folder. | User (GUI interaction). Subsequently calls `training_objdet.py`. | `conf/config.yaml` with all parameters. |
+| **config.py** | Defines Hydra configuration schema (`AIPipelineConfig`) including training, scheduler, optimizer, augmentation, model, dataset. | Loaded by Hydra. Expects external YAML configs. | `training_objdet.py`, `User_Interface.py`. | Configuration objects for training/eval. |
+| **training_objdet.py** | Orchestrates training/eval: loads config, datasets, model; training loop with logging, TensorBoard, checkpoints. | `conf/config.yaml`, `config.py` Schema, dataset folders (`train/`, `val/`, `test/` with annotations), `classes.yaml`, model modules (`fasterRCNN_001Resnet.py`, `fasterrcnn_swin_timm.py`). | Started by `User_Interface.py` or CLI. | Checkpoints (`best_model_weights.pth`), logs (`training.log`), TensorBoard runs, `experiment_summary.yaml`. |
+| **fasterRCNN_001Resnet.py** | `build_model(num_classes)` for Faster R-CNN with ResNet50-FPN backbone. | torchvision (`fasterrcnn_resnet50_fpn`), `num_classes`. | `training_objdet.py`. | Initialized Faster R-CNN model. |
+| **fasterrcnn_swin_timm.py** | `build_model(num_classes)` for Faster R-CNN with Swin backbone (via `timm`) + FPN. | `timm`, torchvision detection API, `num_classes`. | `training_objdet.py`. | Initialized Faster R-CNN (Swin backbone). |
+| **Dataset folder** (`train/`, `val/`, `test/`) | Images + labels (COCO, YOLO, Pascal V1.0). | Correct format (e.g., `train/_annotations.coco.json`). | `training_objdet.py` via Dataloader. | Input data for training/evaluation. |
+| **classes.yaml** | Contains `num_classes` (and class list, if applicable). | Must be consistent with annotations. | `User_Interface.py` (reads number of classes), `training_objdet.py`. | Number of classes → for model head. |
 
 ## Continuations
 
@@ -767,8 +836,9 @@ Diese Tabelle zeigt, welche Dateien welche Informationen **bereitstellen** und *
 - Known Issues: List any known issues or limitations with the current version of your project. This can provide an opportunity for contributions that address the issue.
 
 ## Function Dictionary
-________________________________________________________
+
 ### training_objdet.py
+
 [def main()](#def-main)
 
 [def setup_experiment_dir()](#def-setup_experiment_dir)
@@ -780,14 +850,6 @@ ________________________________________________________
 [def setup_transforms()](#def-setup_transforms)
 
 [def load_datasets()](#def-load_datasets)
-
-[def _build_full_dataset()](#def-_build_full_dataset)
-
-Moritz
-_______________________________________________________
-
-[def _split_lengths()](#def-_split_lengths)
-
 
 [def create_dataloaders()](#def-create_dataloaders)
 
@@ -831,9 +893,6 @@ _______________________________________________________
 
 [def confusion_matrix_detection()](#def-confusion_matrix_detection)
 
-Felix
-_______________________________________________________
-
 [def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
 
 [def model_input_format()](#def-model_input_format)
@@ -845,7 +904,6 @@ _______________________________________________________
 [def debug_show_grid()](#def-debug_show_grid)
 
 [def dump_yaml_str()](#def-dump_yaml_str)
-
 
 ### User_Interface.py
 
@@ -878,7 +936,6 @@ _______________________________________________________
 
 [def tensorboard_command()](#def-tensorboard_command)
 
-
 ### training.py and compare.py
 
 [def start_user_interface()](#def-start_user_interface)
@@ -886,105 +943,682 @@ _______________________________________________________
 + File overview
 
 Wesley
+
+@ Felix, Moritz, da standen mal eure Name zwischen drin, die hat gpt leider rausgeschmissen, aber ist auch nicht mehr allzu wichtig, die Teile sind fertig. LG, Janik
 ____________________________________________________________________
 
 ### Functions
 
 #### def main()
-this function does ....
 
+Main function for training the model.
 
 #### def setup_experiment_dir()
 
+Setup experiment directory structure.
+
+**Parameters:**
+
+- `timestamp` (str): The timestamp for the experiment.
+- `model_type` (str): The type of the model (e.g., "yolo", "faster_rcnn").
+- `model_name` (str): The name of the model (e.g., "yolo_v5", "faster_rcnn_resnet50").
+- `transfer_learning_enabled` (bool): Whether transfer learning is enabled.
+
+**Returns:**
+
+- `experiment_dir` (str): The path to the experiment directory.
+- `experiment_name` (str): The name of the experiment.
 
 #### def setup_logger()
 
+Setup logger and return log file path.
+
+**Parameters:**
+
+- `experiment_dir` (str): The directory where experiment logs will be saved.
+- `debug_mode` (bool): Whether to enable debug mode for logging.
+
+**Returns:**
+
+- `log_file_path` (str): The path to the log file.
 
 #### def load_model()
 
+Load model based on configuration.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object containing model and dataset settings.
+
+**Returns:**
+
+- `Tuple[torch.nn.Module, ModuleType, str]`: The loaded model, model architecture module, and model name.
+
 #### def setup_transforms()
+
+Setup data transforms and augmentations.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object containing model and dataset settings.
+- `model_architecture` (ModuleType): The imported model architecture module.
+
+**Returns:**
+
+- `v2_train_tf` (COCOWrapper): The training transform wrapper for the COCO dataset.
+- `v2_eval_tf` (COCOWrapper): The evaluation transform wrapper for the COCO dataset.
 
 #### def load_datasets()
 
-#### def _build_full_dataset()
+Loads datasets according to configuration.
 
-#### def _split_lengths()
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object containing model and dataset settings.
+- `v2_train_tf` (COCOWrapper): The training transform wrapper for the COCO dataset.
+- `v2_eval_tf` (COCOWrapper): The evaluation transform wrapper for the COCO dataset.
+
+**Returns:**
+
+- `train_dataset` (Dataset): The training dataset.
+- `val_dataset` (Dataset): The validation dataset.
+- `test_dataset` (Dataset): The test dataset.
 
 #### def create_dataloaders()
 
+Create dataloaders from datasets.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `train_dataset` (Dataset): The training dataset.
+- `val_dataset` (Dataset): The validation dataset.
+- `test_dataset` (Dataset): The test dataset.
+
+**Returns:**
+
+- `train_dataloader` (DataLoader): The DataLoader for the training dataset.
+- `val_dataloader` (DataLoader): The DataLoader for the validation dataset.
+- `test_dataloader` (DataLoader): The DataLoader for the test dataset.
+
 #### def setup_device()
+
+Setup device for training (gpu/cpu).
+
+**Parameters:**
+
+- `model` (nn.Module): The object detection model.
+
+**Returns:**
+
+- `device` (torch.device): The device on which the model is located.
 
 #### def setup_optimizer()
 
+Setup optimizer based on configuration.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+
+**Returns:**
+
+- `optimizer` (Optimizer): The optimizer for model training.
+
 #### def setup_scheduler()
+
+Setup learning rate scheduler based on configuration.
+
+**Parameters:**
+
+- `optimizer` (Optimizer): The optimizer for model training.
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+
+**Returns:**
+
+- `scheduler` (_LRScheduler): The learning rate scheduler.
+- `use_scheduler` (bool): Whether the scheduler is being used.
 
 #### def log_model_parameters()
 
+Log model parameters to Tensorboard once per epoch.
+
+**Parameters:**
+
+- `model` (nn.Module): The object detection model.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `epoch` (int): The current epoch number.
+
 #### def train_one_epoch()
+
+Train model for one epoch.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+- `train_dataloader` (DataLoader): The DataLoader for the training dataset.
+- `optimizer` (Optimizer): The optimizer for model training.
+- `device` (torch.device): The device to run the model on.
+- `global_step` (int): The global training step.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `model_need` (str): The input format required by the model.
+
+**Returns:**
+
+- `avg_train_loss` (float): The average training loss.
+- `global_step` (int): The global training step.
 
 #### def log_visualizations()
 
+Log visualizations to TensorBoard.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+- `images` (List[Tensor]): The input images.
+- `processed_targets` (List[Tensor]): The processed target tensors.
+- `device` (torch.device): The device to run the model on.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `epoch` (int): The current epoch number.
+- `model_need` (str): The input format required by the model.
+- `mode` (str): The mode of the data ("Train" or "Valid").
+
 #### def validate_model()
+
+Validate model and log results.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+- `val_dataloader` (DataLoader): The DataLoader for the validation dataset.
+- `device` (torch.device): The device to run the model on.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `epoch` (int): The current epoch number.
+- `model_need` (str): The input format required by the model.
+
+**Returns:**
+
+- `avg_val_loss` (float): The average validation loss.
+- `loss_dict` (dict): The dictionary containing the loss components.
 
 #### def evaluate_coco_metrics()
 
+Evaluate model using COCO metrics.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+- `val_dataloader` (DataLoader): The DataLoader for the validation dataset.
+- `device` (torch.device): The device to run the model on.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `epoch` (int): The current epoch number.
+- `model_need` (str): The input format required by the model.
+
+**Returns:**
+
+- `np.ndarray`: The confusion matrix.
+
 #### def save_checkpoint()
+
+Save model checkpoint.
+
+**Parameters:**
+
+- `model` (nn.Module): The object detection model.
+- `optimizer` (Optimizer): The optimizer used for training.
+- `epoch` (int): The current epoch number.
+- `avg_train_loss` (float): The average training loss.
+- `avg_val_loss` (float): The average validation loss.
+- `experiment_dir` (str): The directory to save the experiment files.
+- `is_best` (bool): Whether this is the best model so far.
 
 #### def build_confusion_matrix()
 
+Build confusion matrix for test set.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `model` (nn.Module): The object detection model.
+- `test_dataloader` (DataLoader): The DataLoader for the test dataset.
+- `device` (torch.device): The device to run the model on.
+- `writer` (SummaryWriter): The TensorBoard writer.
+- `num_classes` (int): The number of classes in the dataset.
+- `model_need` (str): The input format required by the model.
+
+**Returns:**
+
+- `np.ndarray`: The confusion matrix.
+
 #### def create_experiment_summary()
+
+Create and save experiment summary.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): The configuration object for the AI pipeline.
+- `experiment_name` (str): The name of the experiment.
+- `model_name` (str): The name of the model.
+- `timestamp` (str): The timestamp of the experiment.
+- `total_epochs` (int): The total number of epochs trained.
+- `best_val_loss` (float): The best validation loss achieved.
+- `avg_test_loss` (float): The average test loss.
+- `experiment_dir` (str): The directory to save the experiment files.
 
 #### def collate_fn()
 
-#### def clear_gpu_cache()
+Collates a batch of data for the DataLoader.
 
-#### def coco_xywh_to_xyxy()
+**Parameters:**
 
-#### def draw_boxes_on_img()
+- `batch` (list): A list of samples from the dataset.
 
-#### def tensor_to_uint8()
+**Returns:**
 
-#### def make_gt_vs_pred_grid()
+- Collated batch data in the required format for the model.
 
-#### def grad_global_norm()
+___
 
-#### def iou_matrix()
+### def clear_gpu_cache()
 
-#### def confusion_matrix_detection()
+Clears the GPU cache to free up memory.
 
-#### def evaluate_coco_from_loader()
+**Notes:**
 
-#### def model_input_format()
+- Useful for avoiding out-of-memory errors during training or evaluation.
 
-#### def _check_img_range()
+___
 
-#### def debug_show()
+### def coco_xywh_to_xyxy()
 
-#### def debug_show_grid()
+Converts bounding box format from COCO (x, y, width, height) to (x_min, y_min, x_max, y_max).
 
-#### def quote_specific_strings()
+**Parameters:**
 
-#### def dump_yaml_str()
+- `boxes` (torch.Tensor): Tensor of bounding boxes in COCO format.
 
-#### def list_dirs()
+**Returns:**
 
-#### def list_files()
+- `torch.Tensor`: Tensor of bounding boxes in (x_min, y_min, x_max, y_max) format.
 
-#### def get_dataset_options()
+___
 
-#### def get_num_classes()
+### def draw_boxes_on_img()
 
-#### def check_dataset_split_status()
+Draws bounding boxes on an image.
 
-#### def _get()
+**Parameters:**
 
-#### def list_dirs()
+- `img` (torch.Tensor): The image tensor.
+- `boxes` (torch.Tensor): Tensor of bounding boxes.
+- `labels` (torch.Tensor): Tensor of labels corresponding to the bounding boxes.
 
-#### def build_logdir_spec()
+**Returns:**
 
-#### def find_terminal_command()
+- `torch.Tensor`: Image tensor with bounding boxes drawn.
 
-#### def tensorboard_command()
+___
 
+### def tensor_to_uint8()
 
-#### def start_user_interface()
+Converts a tensor to uint8 format for visualization.
+
+**Parameters:**
+
+- `img` (torch.Tensor): The image tensor.
+
+**Returns:**
+
+- `torch.Tensor`: Image tensor in uint8 format.
+
+___
+
+### def make_gt_vs_pred_grid()
+
+Creates a grid comparing ground truth and predictions for visualization.
+
+**Parameters:**
+
+- `imgs_vis` (list of torch.Tensor): List of images for visualization.
+- `targets_list` (list): List of ground truth targets.
+- `preds_list` (list): List of predictions.
+- `debug_mode` (bool, optional): Whether to enable debug mode. Default is `False`.
+
+**Returns:**
+
+- Grid of images comparing ground truth and predictions.
+
+___
+
+### def grad_global_norm()
+
+Calculates the global norm of gradients.
+
+**Parameters:**
+
+- `parameters` (iterable): Iterable of model parameters.
+
+**Returns:**
+
+- `float`: The global norm of gradients.
+
+___
+
+### def iou_matrix()
+
+Computes the Intersection over Union (IoU) matrix between two sets of bounding boxes.
+
+**Parameters:**
+
+- `a` (torch.Tensor): First set of bounding boxes.
+- `b` (torch.Tensor): Second set of bounding boxes.
+
+**Returns:**
+
+- `torch.Tensor`: IoU matrix.
+
+___
+
+### def confusion_matrix_detection()
+
+Builds a confusion matrix for object detection tasks.
+
+**Parameters:**
+
+- `preds` (list): List of predictions.
+- `gts` (list): List of ground truth annotations.
+- `num_classes` (int): Number of classes.
+- `iou_thr` (float, optional): IoU threshold for matching. Default is `0.5`.
+- `score_thr` (float, optional): Score threshold for predictions. Default is `0.5`.
+
+**Returns:**
+
+- `np.ndarray`: Confusion matrix.
+
+___
+
+### def evaluate_coco_from_loader()
+
+Evaluates a model using the COCO evaluation protocol.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): Configuration object.
+- `model` (nn.Module): The model to evaluate.
+- `dataloader` (DataLoader): DataLoader for the evaluation dataset.
+- `device` (torch.device): Device to run the evaluation on.
+
+**Returns:**
+
+- Evaluation metrics as a dictionary.
+
+___
+
+### def model_input_format()
+
+Prepares model input format based on configuration.
+
+**Parameters:**
+
+- `cfg` (AIPipelineConfig): Configuration object.
+- `images` (list or torch.Tensor): Input images.
+- `targets` (list): Target annotations.
+- `device` (torch.device): Device to run the model on.
+- `model_need` (str): Required input format for the model.
+
+**Returns:**
+
+- Formatted images and targets for the model.
+
+___
+
+### def _check_img_range()
+
+Checks the range of image pixel values for debugging purposes.
+
+**Parameters:**
+
+- `img` (torch.Tensor): The image tensor.
+- `img_id` (str, optional): Identifier for the image. Default is `"unknown"`.
+
+**Notes:**
+
+- Logs warnings if pixel values are out of the expected range.
+
+___
+
+### def debug_show()
+
+Displays an image for debugging purposes.
+
+**Parameters:**
+
+- `img` (torch.Tensor): The image tensor.
+- `title` (str, optional): Title for the image. Default is `"Debug Image"`.
+- `enable` (bool, optional): Whether to enable the display. Default is `False`.
+
+___
+
+### def debug_show_grid()
+
+Displays a grid of images for debugging purposes.
+
+**Parameters:**
+
+- `images` (list of torch.Tensor): List of image tensors.
+- `titles` (list of str, optional): Titles for the images. Default is `None`.
+- `rows` (int, optional): Number of rows in the grid. Default is `None`.
+- `cols` (int, optional): Number of columns in the grid. Default is `None`.
+- `figsize` (tuple, optional): Size of the figure. Default is `(15, 10)`.
+- `enable` (bool, optional): Whether to enable the display. Default is `False`.
+
+___
+
+### def dump_yaml_str()
+
+Dumps a dictionary to a YAML-formatted string.
+
+**Parameters:**
+
+- `data` (dict): The dictionary to dump.
+
+**Returns:**
+
+- `str`: YAML-formatted string.
+
+## User Interface.py
+
+### def quote_specific_strings()
+
+Processes data to quote specific strings and set specific arrays as flow-style.
+
+**Parameters:**
+
+- `data` (dict or list): The input data to process.
+
+**Returns:**
+
+- `dict or list`: The processed data with specific strings quoted and arrays in flow-style.
+
+___
+
+### def dump_yaml_str()
+
+Dumps the given data as a YAML-formatted string.
+
+**Parameters:**
+
+- `data` (dict): The input data to process.
+
+**Returns:**
+
+- `str`: The YAML-formatted string.
+
+___
+
+### def list_dirs()
+
+Lists all subdirectories in the given path.
+
+**Parameters:**
+
+- `path` (Path): The directory path to search.
+
+**Returns:**
+
+- `list[str]`: A list of subdirectory names.
+
+___
+
+### def list_files()
+
+Lists all files in the given path with the specified suffix.
+
+**Parameters:**
+
+- `path` (Path): The directory path to search.
+- `suffix` (str): The file suffix to filter by (default: ".py").
+
+**Returns:**
+
+- `list[str]`: A list of file names (without suffix) that match the criteria.
+
+___
+
+### def get_dataset_options()
+
+Gets a list of available dataset options for the specified task.
+
+**Parameters:**
+
+- `datasets_root` (Path): The root directory of the datasets.
+- `task` (str): The task name (e.g., "classification", "object_detection").
+
+**Returns:**
+
+- `list[str]`: A list of dataset options in the format "type/dataset".
+
+___
+
+### def get_num_classes()
+
+Gets the number of classes for the specified dataset.
+
+**Parameters:**
+
+- `datasets_root` (Path): The root directory of the datasets.
+- `task` (str): The task name (e.g., "classification", "object_detection").
+- `dataset_path` (str): The path to the specific dataset.
+
+**Returns:**
+
+- `int`: The number of classes in the dataset.
+
+___
+
+### def check_dataset_split_status()
+
+Checks if the dataset has been split into train/val/test sets.
+
+**Parameters:**
+
+- `datasets_root` (Path): The root directory of the datasets.
+- `task` (str): The task name (e.g., "classification", "object_detection").
+- `dataset_path` (str): The path to the specific dataset.
+
+**Returns:**
+
+- `bool`: True if the dataset is split, False otherwise.
+
+___
+
+### def _get()
+
+Retrieves a value from a dictionary with a default and optional casting.
+
+**Parameters:**
+
+- `dictionary` (dict): The dictionary to retrieve the value from.
+- `key` (str): The key to look up in the dictionary.
+- `default`: The default value to return if the key is not found.
+- `cast` (callable, optional): A function to cast the value. Default is `lambda x: x`.
+
+**Returns:**
+
+- The retrieved and optionally cast value.
+
+___
+
+### def list_dirs()
+
+Lists all subdirectories in the given path.
+
+**Parameters:**
+
+- `path` (Path): The directory path to search.
+
+**Returns:**
+
+- `list[str]`: A list of subdirectory names.
+
+___
+
+### def build_logdir_spec()
+
+Builds the log directory specification for TensorBoard.
+
+**Parameters:**
+
+- `aliases` (list[str]): A list of model aliases.
+- `models` (list[str]): A list of model names.
+
+**Returns:**
+
+- `str`: The log directory specification for TensorBoard.
+
+___
+
+### def find_terminal_command()
+
+Finds a suitable terminal and executes the provided shell command.
+
+**Parameters:**
+
+- `shell_command` (str): The shell command to execute in the terminal.
+
+**Returns:**
+
+- `list[str] | None`: The terminal command as a list of strings, or None if no suitable terminal is found.
+
+___
+
+### def tensorboard_command()
+
+Generates the command to run TensorBoard.
+
+**Parameters:**
+
+- `logdir_spec` (str): The log directory specification for TensorBoard.
+
+**Returns:**
+
+- `str`: The command to run TensorBoard.
+
+___
+
+### def start_user_interface()
+
+Starts the User Interface with Streamlit.
+
+**Notes:**
+
+- Checks if the required file exists and starts Streamlit with the appropriate script.
+
+**Returns:**
+
+- `bool`: True if the User Interface starts successfully, False otherwise.
