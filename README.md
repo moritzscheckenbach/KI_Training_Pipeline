@@ -1,6 +1,7 @@
 # AI Training Pipeline MFW
 
 ## Quick Start Guide
+
 To use the AI Pipeline you need to have the dependencies installed
 
 - [Install dependencies](#installing-dependencies)
@@ -12,10 +13,10 @@ To make further changes in the Code go to:
 - [Advanced Options](#advanced-options) (for your own datasets, augmentations and model architectures)
 - [Dev Options](#dev-options) (for further changes)
 
-
 ## Installing Dependencies
 
 All dependencies can be installed or looked up using the `package_installer.py` script located in the src folder:
+
 ```
 # Navigate to the src folder
 cd src/
@@ -23,23 +24,28 @@ cd src/
 # Run the installer script
 python3 package_installer.py
 ```
+
 This script will check and install all required dependencies for the AI Pipeline
 
 You can install the necessary packages by launching the file. If you use conda just launch the file in the new env.
 
 Otherwise if you like to use conda directly you can build the env by creating a new environment via the `environment.yml` file:
+
 ```
 # Creating conda environment via the environment.yml file
 conda env create -f environment.yml
 ```
 
 If your on Linux it is recommended to aditionally install one of the following terminal emulators to have all functionality of the AI Pipeline
+
 - xterm
 - x-terminal-emulator
 - gnome-terminal
 
 ## Docker
+
 Build image:
+
 ```
 docker build -t ki-pipeline:cuda 
 ```
@@ -61,6 +67,7 @@ docker compose down
 To start the AI Pipeline you need to have the [dependencies](#installing-dependencies) installed.
 
 The pipeline workflow starts with launching the `training.py` file in the src folder
+
 ```
 # Navigate to the src folder
 cd src/
@@ -72,7 +79,6 @@ This will launch the browser application and allow you to configure the training
 
 Excerpt of the configuration application
 ![image](src/docs/images/excerpt_of_configuration_application.png)
-
 
 ### Start Training Workflow
 
@@ -112,7 +118,8 @@ After the training is completed you get an output like this:
 
 ![image](src/docs/images/completed_training_console.png)
 
-You get a summary of where the data is stored and get the command to view the results in tensorboard
+You get a summary of where the data is stored and get the command to view the results in tensorboard.
+
 ```
 tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
 ```
@@ -122,6 +129,7 @@ tensorboard --logdir=trained_models/{task}/{experiment_name}/tensorboard
 You can compare the tensorboard evaluation of multiple trained models via the model comparison.
 
 The comparison starts with launching the `compare.py` file in the src folder
+
 ```
 # Navigate to the src folder
 cd src/
@@ -129,6 +137,7 @@ cd src/
 # Run the installer script
 python3 compare.py
 ```
+
 This will launch the browser application and allow you to select up to 10 previously trained models.
 
 The application will generate the command to starte the tensorboards.
@@ -151,9 +160,11 @@ To use tha AI Pipeline you need to have the dependencies installed
 To add one of your own datasets you first need to know of which structure type your dataset is. With tools like roboflow you can export the dataset in any type you like, else you have to know the type of your dataset.
 
 The datastructure is simple and structured by task and type of the data.
+
 ```
 src/datasets/{task}/{type}/...
 ```
+
 ```
 datasets/
 ├── classification/
@@ -193,10 +204,13 @@ datasets/
     ├── Type_Kitty/
     │   └── ...
 ```
+
 **Note!** Dont forget the `classes.yaml` file with:
+
 ``` 
 num_classes: [number of classes in the dataset]
-``` 
+```
+
 For a more indebth look at how the dataset structure works it is recommended to consult the [Dataset Directories](#dataset-directories)
 
 ### Add Your Own Augmentation
@@ -240,11 +254,11 @@ def augment():
     )
 ```
 
-
 ### Add Your Own Architecture
 
 The current version of the pipeline **only supports PyTorch model architectures and models compatible with that**, like Timm models.
 Just like the datasets the model architectures follow the same folder structure of
+
 ```
 src/model_architecture/{task}/{YourModelName}
 ```
@@ -290,7 +304,6 @@ Regardless of which approach you choose, you must implement the three required i
 
 These functions must be defined at the module level (not inside classes) to be properly imported by the training pipeline.
 
-
 For a more indebth look at how the architecture structure works it is recommended to consult the [Directories](#model-architecture)
 
 ___
@@ -298,7 +311,7 @@ ___
 ## Dev Options
 
 If you would like to view the code or change something in the pipeline make yourself familiar with the [internal pipeline structure](#internal-pipeline-structure).
-A Dictionary for every function in the code can be found [here](#function-dictionary)
+A Dictionary for every function in the code can be found in the [function dictionary](#function-dictionary)
 
 At the moment you can easily implement new or change existing parts like:
 
@@ -315,7 +328,7 @@ For the exact composition of the data consult the [Dataloader directory](#datalo
 ### Internal Pipeline Structure
 
 1. Setup Phase: Creates [experiment directories](#experiment-directories), configures [logging](#logging), and loads the specified [model architecture](#model-architecture).
-2. Data Preparation: Sets up data transforms/[augmentation](#augmentation) and loads datasets with appropriate preprocessing.
+2. Data Preparation: Sets up data transforms/[augmentation](#augmentation template) and loads datasets with appropriate preprocessing.
 3. Training Environment: Moves the model to the appropriate device (GPU/CPU), configures the [optimizer](#optimizer) and learning rate [scheduler](#scheduler).
 4. Training Loop: For each epoch:
     - Processes batches of training data
@@ -404,9 +417,11 @@ To add a new model to the pipeline, save the file in the corresponding directory
 ##### Dataset Directories
 
 The datastructure is simple and structured by task and type of the data.
+
 ```
 src/datasets/{task}/{type}/...
 ```
+
 ```
 datasets/
 ├── classification/
@@ -465,6 +480,7 @@ Every entry is the coresponding annotations for the image:
     "image_id": Tensor[1]  
     "area": Tensor[n]  
     "iscrowd": Tensor[n]  
+
 With n being the number of objects in one image.
 
 ##### Experiment Directories
@@ -489,7 +505,6 @@ trained_models/
     └── ...
 ```
 
-
 #### Model Architecture
 
 If you want to implement your own model or add another architecture to the pipeline, there are a few requirements to ensure compatibility.
@@ -498,7 +513,7 @@ Follow PyTorch’s nn.Module conventions when implementing your own architecture
 
 What the Pipeline Handles Automatically
 
-- Device placement .to(device) 
+- Device placement .to(device)
 - FP32 inputs in range [0,1]  (do not normalize inside the model unless explicitly documented)
 - Optimizer setup (optimizer.py + config)
 - Scheduler setup (scheduler.py + config)
@@ -517,6 +532,7 @@ Common pitfalls:
     - The trainer calls model.train() / model.eval(). Don’t override this flow inside your model.
 
 How things Connect:
+
 ```mermaid
 flowchart LR
   %% --- CONFIG ---
@@ -547,7 +563,7 @@ flowchart LR
   K --> I --> J
 ```
 
-##### Template:
+#### Template
 
 ```
 """
@@ -1444,34 +1460,6 @@ Processes data to quote specific strings and set specific arrays as flow-style.
 **Returns:**
 
 - `dict or list`: The processed data with specific strings quoted and arrays in flow-style.
-
-___
-
-### def dump_yaml_str()
-
-Dumps the given data as a YAML-formatted string.
-
-**Parameters:**
-
-- `data` (dict): The input data to process.
-
-**Returns:**
-
-- `str`: The YAML-formatted string.
-
-___
-
-### def list_dirs()
-
-Lists all subdirectories in the given path.
-
-**Parameters:**
-
-- `path` (Path): The directory path to search.
-
-**Returns:**
-
-- `list[str]`: A list of subdirectory names.
 
 ___
 
