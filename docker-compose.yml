@@ -14,13 +14,11 @@ services:
     volumes:
       # Live-Entwicklung: mount lokale Ordner, falls du nicht im Image arbeiten willst
       - ./src:/app/src
-      - ./data:/app/data   # falls du Daten außerhalb halten willst
-      - ./runs:/app/runs   # TensorBoard/CHECKPOINTS
-      - ./conf:/app/conf   # falls du YAML-Konfigurationen trennst
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
     ports:
       - "6006:6006"  # TensorBoard
       - "8501:8501"  # Streamlit UI
     shm_size: "8g"
-    command: >
-      CMD ["bash","-lc","python src/training.py"]
-
+    working_dir: /app/src
+    command: python training.py

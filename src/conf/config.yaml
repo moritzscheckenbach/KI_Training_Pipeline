@@ -8,8 +8,16 @@ training:
 scheduler:
   file: "scheduler"
   type: "StepLR"
-  patience: 5
+  step_size: 10
+  gamma: 0.1
+  milestones: [30, 60, 90]
+  T_max: 50
+  eta_min: 1e-06
+  mode: "min"
   factor: 0.5
+  patience: 5
+  threshold: 0.0001
+  cooldown: 0
   min_lr: 1e-06
 optimizer:
   type: "Adam"
@@ -21,8 +29,8 @@ optimizer:
 augmentation:
   file: "augment_rotate_flip_shear_translate_brightness"
 model:
-  type: "classification"
-  file: "cnn_class_001"
+  type: "object_detection"
+  file: "FastRCNN_001"
   transfer_learning:
     enabled: false
     path: ''
@@ -41,9 +49,9 @@ model:
       backbone_lr_multiplier: 0.1
       head_lr_multiplier: 1.0
 dataset:
-  root: "datasets/classification/Type_Folder/pokemon/"
-  type: "Type_Folder"
-  num_classes: 110
+  root: "datasets/object_detection/Type_COCO/Duckiebots_mini/"
+  type: "Type_COCO"
+  num_classes: 4
   autosplit:
     enabled: false
     train_ratio: 0.7
