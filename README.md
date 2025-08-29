@@ -938,106 +938,64 @@ This table shows which files **provide** and **requires** information as well as
 
 ### training_objdet.py
 
-[def main()](#def-main)
-
-[def setup_experiment_dir()](#def-setup_experiment_dir)
-
-[def setup_logger()](#def-setup_logger)
-
-[def load_model()](#def-load_model)
-
-[def setup_transforms()](#def-setup_transforms)
-
-[def load_datasets()](#def-load_datasets)
-
-[def create_dataloaders()](#def-create_dataloaders)
-
-[def setup_device()](#def-setup_device)
-
-[def setup_optimizer()](#def-setup_optimizer)
-
-[def setup_scheduler()](#def-setup_scheduler)
-
-[def log_model_parameters()](#def-log_model_parameters)
-
-[def train_one_epoch()](#def-train_one_epoch)
-
-[def log_visualizations()](#def-log_visualizations)
-
-[def validate_model()](#def-validate_model)
-
-[def evaluate_coco_metrics()](#def-evaluate_coco_metrics)
-
-[def save_checkpoint()](#def-save_checkpoint)
-
-[def build_confusion_matrix()](#def-build_confusion_matrix)
-
-[def create_experiment_summary()](#def-create_experiment_summary)
-
-[def collate_fn()](#def-collate_fn)
-
-[def clear_gpu_cache()](#def-clear_gpu_cache)
-
-[def coco_xywh_to_xyxy()](#def-coco_xywh_to_xyxy)
-
-[def draw_boxes_on_img()](#def-draw_boxes_on_img)
-
-[def tensor_to_uint8()](#def-tensor_to_uint8)
-
-[def make_gt_vs_pred_grid()](#def-make_gt_vs_pred_grid)
-
-[def grad_global_norm()](#def-grad_global_norm)
-
-[def iou_matrix()](#def-iou_matrix)
-
-[def confusion_matrix_detection()](#def-confusion_matrix_detection)
-
-[def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
-
-[def model_input_format()](#def-model_input_format)
-
-[def _check_img_range()](#def-_check_img_range)
-
-[def debug_show()](#def-debug_show)
-
-[def debug_show_grid()](#def-debug_show_grid)
-
-[def dump_yaml_str()](#def-dump_yaml_str)
+- [def main()](#def-main)
+- [def setup_experiment_dir()](#def-setup_experiment_dir)
+- [def setup_logger()](#def-setup_logger)
+- [def load_model()](#def-load_model)
+- [def setup_transforms()](#def-setup_transforms)
+- [def load_datasets()](#def-load_datasets)
+- [def create_dataloaders()](#def-create_dataloaders)
+- [def setup_device()](#def-setup_device)
+- [def setup_optimizer()](#def-setup_optimizer)
+- [def setup_scheduler()](#def-setup_scheduler)
+- [def log_model_parameters()](#def-log_model_parameters)
+- [def train_one_epoch()](#def-train_one_epoch)
+- [def log_visualizations()](#def-log_visualizations)
+- [def validate_model()](#def-validate_model)
+- [def evaluate_coco_metrics()](#def-evaluate_coco_metrics)
+- [def save_checkpoint()](#def-save_checkpoint)
+- [def build_confusion_matrix()](#def-build_confusion_matrix)
+- [def create_experiment_summary()](#def-create_experiment_summary)
+- [def collate_fn()](#def-collate_fn)
+- [def clear_gpu_cache()](#def-clear_gpu_cache)
+- [def coco_xywh_to_xyxy()](#def-coco_xywh_to_xyxy)
+- [def draw_boxes_on_img()](#def-draw_boxes_on_img)
+- [def tensor_to_uint8()](#def-tensor_to_uint8)
+- [def make_gt_vs_pred_grid()](#def-make_gt_vs_pred_grid)
+- [def grad_global_norm()](#def-grad_global_norm)
+- [def iou_matrix()](#def-iou_matrix)
+- [def confusion_matrix_detection()](#def-confusion_matrix_detection)
+- [def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
+- [def model_input_format()](#def-model_input_format)
+- [def _check_img_range()](#def-_check_img_range)
+- [def debug_show()](#def-debug_show)
+- [def debug_show_grid()](#def-debug_show_grid)
+- [def dump_yaml_str()](#def-dump_yaml_str)
 
 ### User_Interface.py
 
-[def quote_specific_strings()](#def-quote_specific_strings)
-
-[def dump_yaml_str()](#def-dump_yaml_str)
-
-[def list_dirs()](#def-list_dirs)
-
-[def list_files()](#def-list_files)
-
-[def get_dataset_options()](#def-get_dataset_options)
-
-[def get_num_classes()](#def-get_num_classes)
-
-[def check_dataset_split_status()](#def-check_dataset_split_status)
-
-[def _get()](#def-_get)
+- [def quote_specific_strings()](#def-quote_specific_strings)
+- [def dump_yaml_str()](#def-dump_yaml_str)
+- [def list_dirs()](#def-list_dirs)
+- [def list_files()](#def-list_files)
+- [def get_dataset_options()](#def-get_dataset_options)
+- [def get_num_classes()](#def-get_num_classes)
+- [def check_dataset_split_status()](#def-check_dataset_split_status)
+- [def _get()](#def-_get)
 
 Janik
 _______________________________________________________
 
 ### evaluation.py
 
-[def list_dirs()](#def-list_dirs)
-
-[def build_logdir_spec()](#def-build_logdir_spec)
-
-[def find_terminal_command()](#def-find_terminal_command)
-
-[def tensorboard_command()](#def-tensorboard_command)
+- [def list_dirs()](#def-list_dirs)
+- [def build_logdir_spec()](#def-build_logdir_spec)
+- [def find_terminal_command()](#def-find_terminal_command)
+- [def tensorboard_command()](#def-tensorboard_command)
 
 ### training.py and compare.py
 
-[def start_user_interface()](#def-start_user_interface)
+- [def start_user_interface()](#def-start_user_interface)
 
 + File overview
 
@@ -1048,9 +1006,61 @@ ____________________________________________________________________
 
 ### Functions
 
-#### def main()
+#### def main(cfg: AIPipelineConfig)
 
-Main function for training the model.
+The function `main(cfg: AIPipelineConfig)` serves as the central entry point of the training pipeline. It orchestrates the entire lifecycle of an experiment – from initialization and configuration management to final evaluation and result storage. [Hydra](https://hydra.cc/) is used to handle modular and flexible configuration management. To lookup the `AIPipelineConfig` dataclass have a look at the `config.py` file in the `src/conf` folder.
+
+##### Workflow Overview
+
+1. **Experiment Setup**
+   - Generate a unique timestamp for the experiment.
+   - Create a dedicated directory for logs, configurations, and model checkpoints.
+   - Copy the active configuration file for full reproducibility.
+
+2. **Logging & Monitoring**
+   - Initialize a structured logger (with optional debug mode).
+   - Integrate [TensorBoard](https://www.tensorflow.org/tensorboard) for metric visualization and model parameter tracking.
+
+3. **Model Initialization**
+   - Load the specified model architecture (with optional Transfer Learning).
+   - Determine model-specific requirements (input format, preprocessing, etc.).
+
+4. **Data Processing**
+   - Define augmentation and transformation pipelines for training and validation.
+   - Load datasets (train, validation, test).
+   - Create dataloaders for efficient mini-batch processing.
+
+5. **Training Setup**
+   - Allocate the model to the appropriate device (GPU/CPU).
+   - Initialize optimizer and (optional) scheduler.
+   - Compute and log the total number of trainable parameters.
+
+6. **Training Loop**
+   - Iteratively train across the specified number of epochs.
+   - Log loss values, visualizations, and model parameters.
+   - Validate after each epoch (including COCO metrics).
+   - Adjust the learning rate dynamically via scheduler.
+   - Perform checkpointing with “best model” selection.
+   - Apply early stopping if validation performance plateaus.
+
+7. **Evaluation**
+   - Reload the best saved model weights.
+   - Perform test evaluation (loss and additional metrics).
+   - Generate a confusion matrix.
+
+8. **Experiment Finalization**
+   - Summarize all results in a structured `experiment_summary.yaml`.
+   - Output paths to key artifacts (logs, models, TensorBoard).
+   - Mark successful completion of the training process.
+
+##### Typical Outputs
+- 📁 Structured experiment directory (models, logs, TensorBoard, configs)  
+- 📝 Detailed training and validation logs  
+- 🏆 Best model saved in `.pth` format  
+- 📊 Visualizations via TensorBoard  
+- 📋 Comprehensive YAML summary of hyperparameters and results  
+
+---
 
 #### def setup_experiment_dir()
 
