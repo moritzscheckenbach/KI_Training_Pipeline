@@ -462,6 +462,85 @@ datasets/
     │   └── ...
 ```
 
+Our training pipeline supports three common dataset formats: COCO, Pascal_V10, and YOLO. Each format has a specific structure for storing images and annotations, and the training script automatically loads them based on the selected ```dataset.type```
+
+**COCO Dataset Format**
+
+- Structure 
+```
+dataset_root/
+├── train/
+│   ├── images...
+│   └── _annotations.coco.json
+├── valid/
+│   ├── images...
+│   └── _annotations.coco.json
+└── test/
+    ├── images...
+    └── _annotations.coco.json
+```
+- Annotation file: JSON in COCO format, containing:
+
+    - images: metadata for each image (id, file_name, width, height).
+
+    - annotations: bounding boxes in ```[x, y, width, height]``` (top-left + width/height) format.
+
+    - categories: mapping of class IDs to names (contiguous integers starting from 1).
+
+**Pascal_V10 Dataset Format**
+
+- Structure 
+```
+dataset_root/
+├── train/
+│   ├── images/
+│   └── labels/
+├── valid/
+│   ├── images/
+│   └── labels/
+└── test/
+    ├── images/
+    └── labels/
+```
+- Annotations: Usually in Pascal VOC XML format (per image).
+
+    - Each XML contains:
+
+        - ```<object>``` elements with name (class label).
+
+        - Bounding box: ```<bndbox>``` with ```[x, y, x, y]``` (xmin, ymin, xmax, ymax).
+    - Ensure XML filenames match image filenames.
+
+**YOLO Dataset Format**
+
+- Structure 
+```
+dataset_root/
+├── train/
+│   ├── images/
+│   └── labels/
+├── valid/
+│   ├── images/
+│   └── labels/
+└── test/
+    ├── images/
+    └── labels/
+```
+- Annotations: One ```.txt``` file per image, same name as the image.
+
+    - Each line:
+
+        - ``` class_id, x , y, width, height ``` (x_center, y_center, width, height)
+
+**Comparison Table**:
+| Feature              | **COCO**                                                                 | **Pascal_V10**                                      | **YOLO**                                      |
+|----------------------|-------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------------------|
+| **Folder structure** | `train/`, `valid/`, `test/` each with images and a single JSON file      | `train/`, `valid/`, `test/` each with `images/` + `labels/` (XML) | `train/`, `valid/`, `test/` each with `images/` + `labels/` (TXT) |
+| **Annotation file**  | `_annotations.coco.json` per split                                       | One **XML file** per image                          | One **TXT file** per image                     |
+| **Box format**       | `XYWH` (x, y, width, height)                                            | `XYXY` (xmin, ymin, xmax, ymax)                     | Normalized `XYWH` (center_x, center_y, width, height) in [0..1] |
+| **Classes**          | Defined in `categories` list inside JSON (IDs contiguous from 1)         | In XML `<object><name>`                             | First value in each TXT line (`class_id`)      |
+| **Example**          | `"bbox": [100, 200, 50, 80], "category_id": 3`                         | `<bndbox><xmin>100</xmin><ymin>200</ymin> ... </bndbox>` | `3 0.45 0.52 0.20 0.15`                        |
+
 #### Dataloader Directories
 
 The Dataloader is supplying iterated batches of `(images, targets)´ in classic COCO convention.
