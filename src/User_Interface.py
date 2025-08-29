@@ -26,7 +26,20 @@ yaml.indent(mapping=2, sequence=4, offset=2)
 # Helpers
 # =========================
 def quote_specific_strings(data):
-    """Only set specific strings in quotation marks and specific arrays as flow-style"""
+    """
+    Only set specific strings in quotation marks and specific arrays as flow-style
+    
+    Parameters
+    ----------
+    data : dict or list
+        The input data to process.
+
+    Returns
+    -------
+    result : dict or list
+        The processed data with specific strings quoted and arrays in flow-style.
+
+    """
     if isinstance(data, dict):
         result = {}
         for k, v in data.items():
@@ -57,6 +70,19 @@ def quote_specific_strings(data):
 
 
 def dump_yaml_str(data: dict) -> str:
+    """
+    Dump the given data as a YAML-formatted string.
+
+    Parameters
+    ----------
+    data : dict
+        The input data to process.
+
+    Returns
+    -------
+    str
+        The YAML-formatted string.
+    """
     buf = io.StringIO()
     quoted_data = quote_specific_strings(data)
     yaml.default_flow_style = False
@@ -65,6 +91,19 @@ def dump_yaml_str(data: dict) -> str:
 
 
 def list_dirs(path: Path) -> list[str]:
+    """
+    List all subdirectories in the given path.
+
+    Parameters
+    ----------
+    path : Path
+        The directory path to search.
+
+    Returns
+    -------
+    list[str]
+        A list of subdirectory names.
+    """
     try:
         return [p.name for p in sorted(path.iterdir()) if p.is_dir()]
     except Exception:
@@ -72,6 +111,21 @@ def list_dirs(path: Path) -> list[str]:
 
 
 def list_files(path: Path, suffix=".py") -> list[str]:
+    """
+    List all files in the given path with the specified suffix.
+
+    Parameters
+    ----------
+    path : Path
+        The directory path to search.
+    suffix : str
+        The file suffix to filter by (default: ".py").
+
+    Returns
+    -------
+    list[str]
+        A list of file names (without suffix) that match the criteria.
+    """
     try:
         return [p.stem for p in sorted(path.iterdir()) if p.is_file() and p.suffix.lower() == suffix and p.name != "__init__.py"]
     except Exception:
@@ -79,6 +133,21 @@ def list_files(path: Path, suffix=".py") -> list[str]:
 
 
 def get_dataset_options(datasets_root: Path, task: str) -> list[str]:
+    """
+    Get a list of available dataset options for the specified task.
+
+    Parameters
+    ----------
+    datasets_root : Path
+        The root directory of the datasets.
+    task : str
+        The task name (e.g., "classification", "object_detection").
+
+    Returns
+    -------
+    list[str]
+        A list of dataset options in the format "type/dataset".
+    """
     task_path = datasets_root / task
     if not task_path.exists():
         return []
@@ -95,6 +164,23 @@ def get_dataset_options(datasets_root: Path, task: str) -> list[str]:
 
 
 def get_num_classes(datasets_root: Path, task: str, dataset_path: str) -> int:
+    """
+    Get the number of classes for the specified dataset.
+
+    Parameters
+    ----------
+    datasets_root : Path
+        The root directory of the datasets.
+    task : str
+        The task name (e.g., "classification", "object_detection").
+    dataset_path : str
+        The path to the specific dataset.
+
+    Returns
+    -------
+    int
+        The number of classes in the dataset.
+    """
     try:
         classes_file = datasets_root / task / dataset_path / "classes.yaml"
         if classes_file.exists():
@@ -107,6 +193,23 @@ def get_num_classes(datasets_root: Path, task: str, dataset_path: str) -> int:
 
 
 def check_dataset_split_status(datasets_root: Path, task: str, dataset_path: str) -> bool:
+    """
+    Check if the dataset has been split into train/val/test sets.
+
+    Parameters
+    ----------
+    datasets_root : Path
+        The root directory of the datasets.
+    task : str
+        The task name (e.g., "classification", "object_detection").
+    dataset_path : str
+        The path to the specific dataset.
+
+    Returns
+    -------
+    bool
+        True if the dataset is split, False otherwise.
+    """
     if not dataset_path:
         return False
     dataset_full_path = datasets_root / task / dataset_path
@@ -121,15 +224,36 @@ def check_dataset_split_status(datasets_root: Path, task: str, dataset_path: str
 
 # ---------- Runtime/Logging helpers ----------
 def _running_in_docker() -> bool:
+    """
+    Check if the code is running inside a Docker container.
+    """
     return os.path.exists("/.dockerenv")
 
 
 def _ensure_dirs():
+    """
+    Ensure that the necessary directories exist.
+    """
     Path("conf").mkdir(parents=True, exist_ok=True)
     Path("runs").mkdir(parents=True, exist_ok=True)
 
 
 def _tail_file(path: Path, max_bytes: int = 200_000) -> str:
+    """
+    Read the last few lines of a file.
+
+    Parameters
+    ----------
+    path : Path
+        The path to the file.
+    max_bytes : int
+        The maximum number of bytes to read from the end of the file.
+
+    Returns
+    -------
+    str
+        The contents of the last few lines of the file.
+    """
     if not path.exists():
         return ""
     try:
@@ -346,8 +470,27 @@ if mode == "Transfer Learning: Self-trained Model":
 # =========================
 # Config Generation
 # =========================
-def _get(d, key, default, cast=lambda x: x):
-    return cast(d.get(key, default))
+def _get(dictionary, key, default, cast=lambda x: x):
+    """
+    Helper to get a value from a dict with a default and casting.
+
+    Parameters
+    ----------
+    dictionary : dict
+        The dictionary to get the value from.
+    key : str
+        The key to look for in the dictionary.
+    default : any
+        The default value to return if the key is not found.
+    cast : callable
+        A function to cast the value to the desired type.
+
+    Returns
+    -------
+    any
+        The value from the dictionary or the default value.
+    """
+    return cast(dictionary.get(key, default))
 
 DEFAULTS = {
     "step_size": 10,
@@ -462,7 +605,7 @@ with col1:
 
                 # --- Subprozess + Logfile ---
                 log_path = Path("runs/ui_training.log")
-                # line-buffered schreiben; existierende Logs überschreiben
+                # write line-buffered; overwrite existing logs
                 log_f = log_path.open("w", encoding="utf-8", buffering=1)
                 process = subprocess.Popen(
                     [sys.executable, training_file],
@@ -483,13 +626,13 @@ with col1:
 with col2:
     st.download_button("Download", data=yaml_text, file_name="config.yaml", mime="text/yaml")
 
-# ========= Live Log Anzeige =========
+# ========= Live Log Display =========
 if "log_path" in st.session_state:
     lp = Path(st.session_state["log_path"])
     with st.expander("Training logs (tail)"):
         st.caption(str(lp.resolve()))
         st.code(_tail_file(lp), language="bash")
-        # Optional: Auto-Refresh alle 2s aktivieren (kommentiere IN oder AUS)
-        # st.experimental_rerun() nicht verwenden, sonst Endlosschleife.
+        # Optional: Auto-Refresh every 2s (comment IN or OUT)
+        # Do not use st.experimental_rerun(), otherwise endless loop.
         if st.button("Refresh logs"):
-            pass  # Streamlit rerun triggert automatisch und lädt neu
+            pass  # Streamlit rerun triggers automatically and loads new logs
