@@ -325,8 +325,7 @@ At the moment you can easily implement new or change existing parts like:
 - Optimizer
 - Freezing Strategies
 
-For further changes please make sure not to break anything and test your work extensively.
-**Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal (to be implemented) are transformed into the COCO-Format.
+**Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal are transformed into the COCO-Format.
 For the exact composition of the data consult the [Dataloader directory](#dataloader-directories). Later when giving the images and targets to the model, the targets are transformed in XYXY Pytorch convention. The Predicitons of the model are then transformed back into the COCO-Format.
 
 ### Internal Pipeline Structure
@@ -647,75 +646,79 @@ flowchart LR
 ```
 
 #### Template
-
 ```
 """
-Template Model for the Training Pipeline
+Template Model Architecture for the Training Pipeline
+
+You can use this template by copying it and personalize the used object detection model or you can create your own model architecture in a seperate class and call it in the get_model function.
 
 How to use:
 - Copy this file into model_architecture/<task>/ (classification, object_detection, segmentation)
-- Rename the file to something descriptive (e.g., "fasterrcnn_mynet.py").
-- Implement your own model inside build_model() or build_model_tr().
+- Rename the file to something descriptive
+- Implement your own model inside get_model()
 """
 
 import torch
-import torch.nn as nn
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
+
+#######################################################
+#  IMPLEMENT YOUR OWN MODEL CLASS HERE
+#######################################################
 
 
-# =========================================================
-# Build fresh model
-# =========================================================
-def build_model(num_classes: int, pretrained: bool = False) -> nn.Module:
-    """
-    Build and return a new model instance.
+#######################################################
+# CALL THE MODEL IN THE PREFFERED CONFIGURATION HERE
+#######################################################
 
-    Args:
-        num_classes (int): Number of output classes (for detection include background!)
-        pretrained (bool): If True, load pretrained backbone (e.g. from torchvision or timm)
+def get_model(num_classes: int, pretrained: bool = True):
+    if pretrained:
+        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+        model = fasterrcnn_resnet50_fpn(weights=weights, min_size=224, max_size=512)
+    else:
+        model = fasterrcnn_resnet50_fpn(weights=None, weights_backbone=None, min_size=224, max_size=512)
 
-    Returns:
-        torch.nn.Module: Model ready for training
-    """
-    # Example: simple CNN classifier (replace with your own model)
-    model = nn.Sequential(
-        nn.Conv2d(3, 16, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=1),
-        nn.ReLU(),
-        nn.AdaptiveAvgPool2d((1, 1)),
-        nn.Flatten(),
-        nn.Linear(32, num_classes),
-    )
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
     return model
 
 
-# =========================================================
-# Input size helper
-# =========================================================
-def get_input_size() -> tuple[int, int]:
-    """
-    Define the input image size expected by the model.
-    This helps the pipeline resize datasets correctly.
+#######################################################
+# FUNCTIONS EXPECTED BY THE PIPELINE
+#######################################################
 
-    Returns:
-        (width, height): tuple of input dimensions
-    """
-    return 224, 224  # Change to match your model
-    
+def build_model(num_classes: int):
+    # "Fresh model" without Pretrained
+    return get_model(num_classes=num_classes, pretrained=False)
 
 
-# =========================================================
-# Quick test (run this file directly)
-# =========================================================
+def get_input_size():
+    # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
+    return 224, 224 # here set to 224, 224 to improve training time and storage
+
+
+def get_model_need():
+    return "Tensor" # either "Tensor" or "List"
+
+
+#######################################################
+# OPTIONAL: FUNCTIONALITY TEST OF MODEL
+#######################################################
 if __name__ == "__main__":
-    model = build_model(num_classes=10, pretrained=False)
-    print("Template model created successfully")
+    model = build_model(num_classes=20)
+    model.eval()
+    dummy_input = torch.randn(1, 3, 416, 416)
+    output = model(dummy_input)
+    print("fasterRCNN_001Resnet Model loaded successfully!")
+    print(f"Input size: {get_input_size()}")
+    print(f"Dummy output: {output}")
 
-    dummy = torch.randn(1, 3, 224, 224)
-    out = model(dummy)
-    print(f"Dummy input shape: {dummy.shape}")
-    print(f"Dummy output shape: {out.shape}")
 ```
+
 
 #### Optimizer
 
@@ -801,7 +804,7 @@ Supported Schedulers:
 
 - ReduceLROnPlateau: Reduces the learning rate when a monitored metric (e.g., validation loss) stops improving.
 
-- Configuration: The scheduler is configured in the config.yaml file. Parameters like type, patience, factor, and min_lr can be customized.
+- Configuration: The scheduler is configured in the `config.yaml` file. Parameters like type, patience, factor, and min_lr can be customized.
 
 - Integration: During training, the scheduler is invoked after each epoch or when a specific condition is met. It works seamlessly with the optimizer to ensure efficient training.
 
@@ -938,106 +941,64 @@ This table shows which files **provide** and **requires** information as well as
 
 ### training_objdet.py
 
-[def main()](#def-main)
-
-[def setup_experiment_dir()](#def-setup_experiment_dir)
-
-[def setup_logger()](#def-setup_logger)
-
-[def load_model()](#def-load_model)
-
-[def setup_transforms()](#def-setup_transforms)
-
-[def load_datasets()](#def-load_datasets)
-
-[def create_dataloaders()](#def-create_dataloaders)
-
-[def setup_device()](#def-setup_device)
-
-[def setup_optimizer()](#def-setup_optimizer)
-
-[def setup_scheduler()](#def-setup_scheduler)
-
-[def log_model_parameters()](#def-log_model_parameters)
-
-[def train_one_epoch()](#def-train_one_epoch)
-
-[def log_visualizations()](#def-log_visualizations)
-
-[def validate_model()](#def-validate_model)
-
-[def evaluate_coco_metrics()](#def-evaluate_coco_metrics)
-
-[def save_checkpoint()](#def-save_checkpoint)
-
-[def build_confusion_matrix()](#def-build_confusion_matrix)
-
-[def create_experiment_summary()](#def-create_experiment_summary)
-
-[def collate_fn()](#def-collate_fn)
-
-[def clear_gpu_cache()](#def-clear_gpu_cache)
-
-[def coco_xywh_to_xyxy()](#def-coco_xywh_to_xyxy)
-
-[def draw_boxes_on_img()](#def-draw_boxes_on_img)
-
-[def tensor_to_uint8()](#def-tensor_to_uint8)
-
-[def make_gt_vs_pred_grid()](#def-make_gt_vs_pred_grid)
-
-[def grad_global_norm()](#def-grad_global_norm)
-
-[def iou_matrix()](#def-iou_matrix)
-
-[def confusion_matrix_detection()](#def-confusion_matrix_detection)
-
-[def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
-
-[def model_input_format()](#def-model_input_format)
-
-[def _check_img_range()](#def-_check_img_range)
-
-[def debug_show()](#def-debug_show)
-
-[def debug_show_grid()](#def-debug_show_grid)
-
-[def dump_yaml_str()](#def-dump_yaml_str)
+- [def main()](#def-main)
+- [def setup_experiment_dir()](#def-setup_experiment_dir)
+- [def setup_logger()](#def-setup_logger)
+- [def load_model()](#def-load_model)
+- [def setup_transforms()](#def-setup_transforms)
+- [def load_datasets()](#def-load_datasets)
+- [def create_dataloaders()](#def-create_dataloaders)
+- [def setup_device()](#def-setup_device)
+- [def setup_optimizer()](#def-setup_optimizer)
+- [def setup_scheduler()](#def-setup_scheduler)
+- [def log_model_parameters()](#def-log_model_parameters)
+- [def train_one_epoch()](#def-train_one_epoch)
+- [def log_visualizations()](#def-log_visualizations)
+- [def validate_model()](#def-validate_model)
+- [def evaluate_coco_metrics()](#def-evaluate_coco_metrics)
+- [def save_checkpoint()](#def-save_checkpoint)
+- [def build_confusion_matrix()](#def-build_confusion_matrix)
+- [def create_experiment_summary()](#def-create_experiment_summary)
+- [def collate_fn()](#def-collate_fn)
+- [def clear_gpu_cache()](#def-clear_gpu_cache)
+- [def coco_xywh_to_xyxy()](#def-coco_xywh_to_xyxy)
+- [def draw_boxes_on_img()](#def-draw_boxes_on_img)
+- [def tensor_to_uint8()](#def-tensor_to_uint8)
+- [def make_gt_vs_pred_grid()](#def-make_gt_vs_pred_grid)
+- [def grad_global_norm()](#def-grad_global_norm)
+- [def iou_matrix()](#def-iou_matrix)
+- [def confusion_matrix_detection()](#def-confusion_matrix_detection)
+- [def evaluate_coco_from_loader()](#def-evaluate_coco_from_loader)
+- [def model_input_format()](#def-model_input_format)
+- [def _check_img_range()](#def-_check_img_range)
+- [def debug_show()](#def-debug_show)
+- [def debug_show_grid()](#def-debug_show_grid)
+- [def dump_yaml_str()](#def-dump_yaml_str)
 
 ### User_Interface.py
 
-[def quote_specific_strings()](#def-quote_specific_strings)
-
-[def dump_yaml_str()](#def-dump_yaml_str)
-
-[def list_dirs()](#def-list_dirs)
-
-[def list_files()](#def-list_files)
-
-[def get_dataset_options()](#def-get_dataset_options)
-
-[def get_num_classes()](#def-get_num_classes)
-
-[def check_dataset_split_status()](#def-check_dataset_split_status)
-
-[def _get()](#def-_get)
+- [def quote_specific_strings()](#def-quote_specific_strings)
+- [def dump_yaml_str()](#def-dump_yaml_str)
+- [def list_dirs()](#def-list_dirs)
+- [def list_files()](#def-list_files)
+- [def get_dataset_options()](#def-get_dataset_options)
+- [def get_num_classes()](#def-get_num_classes)
+- [def check_dataset_split_status()](#def-check_dataset_split_status)
+- [def _get()](#def-_get)
 
 Janik
 _______________________________________________________
 
 ### evaluation.py
 
-[def list_dirs()](#def-list_dirs)
-
-[def build_logdir_spec()](#def-build_logdir_spec)
-
-[def find_terminal_command()](#def-find_terminal_command)
-
-[def tensorboard_command()](#def-tensorboard_command)
+- [def list_dirs()](#def-list_dirs)
+- [def build_logdir_spec()](#def-build_logdir_spec)
+- [def find_terminal_command()](#def-find_terminal_command)
+- [def tensorboard_command()](#def-tensorboard_command)
 
 ### training.py and compare.py
 
-[def start_user_interface()](#def-start_user_interface)
+- [def start_user_interface()](#def-start_user_interface)
 
 + File overview
 
@@ -1048,9 +1009,61 @@ ____________________________________________________________________
 
 ### Functions
 
-#### def main()
+#### def main(cfg: AIPipelineConfig)
 
-Main function for training the model.
+The function `main(cfg: AIPipelineConfig)` serves as the central entry point of the training pipeline. It orchestrates the entire lifecycle of an experiment – from initialization and configuration management to final evaluation and result storage. [Hydra](https://hydra.cc/) is used to handle modular and flexible configuration management. To lookup the `AIPipelineConfig` dataclass have a look at the `config.py` file in the `src/conf` folder.
+
+##### Workflow Overview
+
+1. **Experiment Setup**
+   - Generate a unique timestamp for the experiment.
+   - Create a dedicated directory for logs, configurations, and model checkpoints.
+   - Copy the active configuration file for full reproducibility.
+
+2. **Logging & Monitoring**
+   - Initialize a structured logger (with optional debug mode).
+   - Integrate [TensorBoard](https://www.tensorflow.org/tensorboard) for metric visualization and model parameter tracking.
+
+3. **Model Initialization**
+   - Load the specified model architecture (with optional Transfer Learning).
+   - Determine model-specific requirements (input format, preprocessing, etc.).
+
+4. **Data Processing**
+   - Define augmentation and transformation pipelines for training and validation.
+   - Load datasets (train, validation, test).
+   - Create dataloaders for efficient mini-batch processing.
+
+5. **Training Setup**
+   - Allocate the model to the appropriate device (GPU/CPU).
+   - Initialize optimizer and (optional) scheduler.
+   - Compute and log the total number of trainable parameters.
+
+6. **Training Loop**
+   - Iteratively train across the specified number of epochs.
+   - Log loss values, visualizations, and model parameters.
+   - Validate after each epoch (including COCO metrics).
+   - Adjust the learning rate dynamically via scheduler.
+   - Perform checkpointing with “best model” selection.
+   - Apply early stopping if validation performance plateaus.
+
+7. **Evaluation**
+   - Reload the best saved model weights.
+   - Perform test evaluation (loss and additional metrics).
+   - Generate a confusion matrix.
+
+8. **Experiment Finalization**
+   - Summarize all results in a structured `experiment_summary.yaml`.
+   - Output paths to key artifacts (logs, models, TensorBoard).
+   - Mark successful completion of the training process.
+
+##### Typical Outputs
+- 📁 Structured experiment directory (models, logs, TensorBoard, configs)  
+- 📝 Detailed training and validation logs  
+- 🏆 Best model saved in `.pth` format  
+- 📊 Visualizations via TensorBoard  
+- 📋 Comprehensive YAML summary of hyperparameters and results  
+
+---
 
 #### def setup_experiment_dir()
 
