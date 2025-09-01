@@ -2,16 +2,14 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-
 import streamlit as st
 
 # =========================
 # Settings
 # =========================
-# If you want to evaluate other tasks, adjust TASK here (e.g. "classification", "segmentation")
 TASK = "object_detection"
 TRAINED_MODELS_ROOT = Path("trained_models") / TASK
-TENSORBOARD_SUBDIR = "tensorboard"  # Relative path within a model folder
+TENSORBOARD_SUBDIR = "tensorboard"
 
 
 # =========================
@@ -25,51 +23,44 @@ def list_dirs(path: Path) -> list[str]:
 
 
 def build_logdir_spec(aliases: list[str], models: list[str]) -> str:
-    # model_i:trained_models/TASK/<model_i>/tensorboard
     pairs = []
     for alias, model in zip(aliases, models):
         if model:
             tb_path = TRAINED_MODELS_ROOT / model / TENSORBOARD_SUBDIR
-            pairs.append(f"{alias}:{tb_path.as_posix()}")
+            if tb_path.exists():
+                pairs.append(f"{alias}:{tb_path.as_posix()}")
     return ",".join(pairs)
 
 
-def find_terminal_command(shell_command: str) -> list[str] | None:
-    """
-    Opens a new terminal and executes the provided shell command.
-    Prefers xterm, then konsole, then x-terminal-emulator, finally gnome-terminal.
-    """
-    cwd = Path.cwd()
-    if shutil.which("xterm"):
-        return ["xterm", "-e", f"bash -c 'cd {cwd} && {shell_command}; echo \"Finished. Press Enter to close...\"; read'"]
-    if shutil.which("konsole"):
-        return ["konsole", "-e", "bash", "-c", f"cd {cwd} && {shell_command}; echo 'Finished. Press Enter to close...'; read"]
-    if shutil.which("x-terminal-emulator"):
-        return ["x-terminal-emulator", "-e", "bash", "-c", f"cd {cwd} && {shell_command}; echo 'Finished. Press Enter to close...'; read"]
-    if shutil.which("gnome-terminal"):
-        return ["gnome-terminal", "--", "bash", "-c", f"cd {cwd} && {shell_command}; echo 'Finished. Press Enter to close...'; read"]
-    return None
-
-
-def tensorboard_command(logdir_spec: str) -> str:
-    """
-    Uses 'tensorboard' if available, otherwise Python fallback.
-    """
+def tensorboard_args(logdir_spec: str, host: str = "0.0.0.0", port: int = 6006) -> list[str]:
+    """Baut den TensorBoard-Startbefehl (als Liste, kein shell=True nötig)."""
     if shutil.which("tensorboard"):
-        return f"tensorboard --logdir_spec={logdir_spec}"
-    return f"{sys.executable} -m tensorboard.main --logdir_spec={logdir_spec}"
+        return [
+            "tensorboard",
+            f"--logdir_spec={logdir_spec}",
+            f"--host={host}",
+            f"--port={port}",
+            "--reload_interval=2",
+        ]
+    # Python-Fallback
+    return [
+        sys.executable,
+        "-m",
+        "tensorboard.main",
+        f"--logdir_spec={logdir_spec}",
+        f"--host={host}",
+        f"--port={port}",
+        "--reload_interval=2",
+    ]
 
 
 # =========================
 # UI
 # =========================
-st.set_page_config(page_title="Model Evaluation with Tensorboard", layout="centered")
-st.title("Model Evaluation with Tensorboard")
+st.set_page_config(page_title="Model Evaluation with TensorBoard", layout="centered")
+st.title("Model Evaluation with TensorBoard")
 
-# Number of models (1-10)
 count = st.selectbox("How many models do you want to compare?", options=list(range(1, 11)), index=0)
-
-# Load model options (exactly as in the transfer learning menu: folder names under trained_models/<TASK>/)
 model_options = list_dirs(TRAINED_MODELS_ROOT)
 
 if not model_options:
@@ -77,31 +68,28 @@ if not model_options:
 else:
     selected_models: list[str] = []
     for i in range(count):
-        m = st.selectbox(
-            f"{i+1}. Select trained model:",
-            options=model_options,
-            key=f"model_select_{i}",
-        )
+        m = st.selectbox(f"{i+1}. Select trained model:", options=model_options, key=f"model_select_{i}")
         selected_models.append(m)
 
-    # Build logdir-spec
     aliases = [f"model{i+1}" for i in range(count)]
     logdir_spec = build_logdir_spec(aliases, selected_models)
 
-    # Command preview
-    cmd = tensorboard_command(logdir_spec)
-    st.subheader("Command Preview")
-    st.code(cmd, language="bash")
+    if not logdir_spec:
+        st.error("No valid TensorBoard log directories found.")
+        st.stop()
 
-    # Start button
+    # Optional: Port-Einstellung
+    port = st.number_input("TensorBoard port", min_value=1024, max_value=65535, value=6006, step=1)
+
+    cmd_list = tensorboard_args(logdir_spec, host="0.0.0.0", port=int(port))
+    st.subheader("Command Preview")
+    st.code(" ".join(cmd_list), language="bash")
+
     if st.button("Start Evaluation"):
         try:
-            term_cmd = find_terminal_command(cmd)
-            if term_cmd is None:
-                st.error("No supported terminal found (xterm/konsole/x-terminal-emulator/gnome-terminal).")
-            else:
-                process = subprocess.Popen(term_cmd)
-                st.success(f"TensorBoard started! Process ID: {process.pid}")
-                st.info("Evaluation is running in a new terminal window. You can follow TensorBoard logs there.")
+            # Direkt im Container starten
+            process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            st.success(f"TensorBoard started (PID: {process.pid}).")
+            st.info(f"Open in browser: http://localhost:{port}")
         except Exception as e:
-            st.error(f"Error starting evaluation: {e}")
+            st.error(f"Error starting TensorBoard: {e}")

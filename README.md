@@ -53,9 +53,13 @@ Docker Compose Build:
 ```
 docker compose build
 ```
-Start:
+Start training:
 ```
-docker compose up
+docker compose up ki_pipeline_train
+```
+Start evaluation:
+```
+docker compose up ki_pipeline_eval
 ```
 Stop:
 ```
