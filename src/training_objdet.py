@@ -86,6 +86,33 @@ def main(cfg: AIPipelineConfig):
     writer = SummaryWriter(log_dir=f"{experiment_dir}/tensorboard")
     logger.info(f"📊 TensorBoard logs: {experiment_dir}/tensorboard")
 
+    # --- safe model graph logging (detection models often not traceable) ---
+    def _is_graph_compatible(out):
+        if torch.is_tensor(out):
+            return True
+        if isinstance(out, (list, tuple)):
+            return all(torch.is_tensor(x) for x in out)
+        if isinstance(out, dict):
+            return all(torch.is_tensor(v) for v in out.values())
+        return False
+
+    try:
+        model.eval()
+        with torch.no_grad():
+            dummy_images, dummy_targets = next(iter(train_dataloader))
+            processed_dummy_images, _ = model_input_format(cfg, dummy_images, dummy_targets, device, model_need)
+            # Run one forward pass to inspect output structure
+            sample_out = model(processed_dummy_images) if model_need == "Tensor" else model([img for img in processed_dummy_images])
+            if _is_graph_compatible(sample_out):
+                writer.add_graph(model, processed_dummy_images)
+                logger.info("🧬 Model graph added to TensorBoard")
+            else:
+                logger.warning("Skipping add_graph: model output is not a pure tensor/list/tuple/dict of tensors (detection model).")
+    except Exception as e:
+        logger.warning(f"Skipping add_graph due to exception: {e}")
+    finally:
+        model.train()
+
     # log model parameters =========================================================================
     n_params = sum(p.numel() for p in model.parameters())
     writer.add_scalar("Model/num_parameters", n_params, 0)
@@ -118,7 +145,7 @@ def main(cfg: AIPipelineConfig):
             images, targets = next(iter(train_dataloader))
             if images is not None and targets is not None:
                 images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
-                log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode = "Train")
+                log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode="Train")
 
         # Validation ==============================================================================
         avg_val_loss, loss_dict = validate_model(cfg, model, val_dataloader, device, writer, epoch, model_need)
@@ -126,7 +153,7 @@ def main(cfg: AIPipelineConfig):
         images, targets = next(iter(val_dataloader))
         if images is not None and targets is not None:
             images, processed_targets = model_input_format(cfg, images, targets, device, model_need)
-            log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode = "Valid")
+            log_visualizations(cfg, model, images, processed_targets, device, writer, epoch, model_need, mode="Valid")
 
         # Evaluation ==============================================================================
         evaluate_coco_metrics(cfg, model, val_dataloader, device, writer, epoch, model_need)
@@ -465,8 +492,8 @@ def load_datasets(cfg: AIPipelineConfig, v2_train_tf, v2_eval_tf):
 
         elif dataset_type == "Type_YOLO":
             train_dataset = YoloDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf, img_id_start=1000000)
-            val_dataset   = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf, img_id_start=2000000)
-            test_dataset  = YoloDataset(images_dir=f"{dataset_root}test/images/",  labels_dir=f"{dataset_root}test/labels/",  transform=v2_eval_tf, img_id_start=3000000)
+            val_dataset = YoloDataset(images_dir=f"{dataset_root}valid/images/", labels_dir=f"{dataset_root}valid/labels/", transform=v2_eval_tf, img_id_start=2000000)
+            test_dataset = YoloDataset(images_dir=f"{dataset_root}test/images/", labels_dir=f"{dataset_root}test/labels/", transform=v2_eval_tf, img_id_start=3000000)
 
         elif dataset_type == "Type_Pascal_V10":
             train_dataset = PascalDataset(images_dir=f"{dataset_root}train/images/", labels_dir=f"{dataset_root}train/labels/", transform=v2_train_tf)
@@ -1776,10 +1803,10 @@ def debug_show(img, title="Debug Image", enable=False):
         img : torch.Tensor, np.ndarray, or PIL.Image
             Image to be plotted.
 
-        title : string (optional, default: Debug Image) 
+        title : string (optional, default: Debug Image)
             Adds a title to the plot.
 
-        enable : bool (optional, default: False) 
+        enable : bool (optional, default: False)
             Whether to actually display the images.
     """
     if not enable:
@@ -1806,7 +1833,7 @@ def debug_show_grid(images, titles=None, rows=None, cols=None, figsize=(15, 10),
         images : List of images (torch.Tensor, np.ndarray, or PIL.Image)
             Images to be displayed.
 
-        titles : list of strings, Optional 
+        titles : list of strings, Optional
             list of titles for each image
 
         rows : int
