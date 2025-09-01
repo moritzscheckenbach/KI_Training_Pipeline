@@ -321,8 +321,7 @@ At the moment you can easily implement new or change existing parts like:
 - Optimizer
 - Freezing Strategies
 
-For further changes please make sure not to break anything and test your work extensively.
-**Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal (to be implemented) are transformed into the COCO-Format.
+**Note** that the Pipeline internally works in COCO-Format, other formats like YOLO or Pascal are transformed into the COCO-Format.
 For the exact composition of the data consult the [Dataloader directory](#dataloader-directories). Later when giving the images and targets to the model, the targets are transformed in XYXY Pytorch convention. The Predicitons of the model are then transformed back into the COCO-Format.
 
 ### Internal Pipeline Structure
@@ -801,7 +800,7 @@ Supported Schedulers:
 
 - ReduceLROnPlateau: Reduces the learning rate when a monitored metric (e.g., validation loss) stops improving.
 
-- Configuration: The scheduler is configured in the config.yaml file. Parameters like type, patience, factor, and min_lr can be customized.
+- Configuration: The scheduler is configured in the `config.yaml` file. Parameters like type, patience, factor, and min_lr can be customized.
 
 - Integration: During training, the scheduler is invoked after each epoch or when a specific condition is met. It works seamlessly with the optimizer to ensure efficient training.
 
