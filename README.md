@@ -82,6 +82,13 @@ cd src/
 # Run the installer script
 python3 training.py
 ```
+
+or starting the docker container with
+
+```
+docker compose up ki_pipeline_train
+```
+
 This will launch the browser application and allow you to configure the training settings.
 
 Excerpt of the configuration application
@@ -99,10 +106,7 @@ flowchart TD
     TrainingExecution --> End([End])
 ```
 
-At the moment only Linux with installed terminal emulators allows to start the training from the brower right away.
-If your device meets that requirement you can start the training via the `Start Training` button.
-
-If you have no terminal emulator installed or using Windows you have to start the training process manually after saving the `config.yaml` file in the `src/conf/` folder.
+You can start the training via the `Start Training` button in the GUI or you can start the training process manually after saving the `config.yaml` file in the `src/conf/` folder.
 
 The manual start of the training is done by launching the file of the determied training task.
 
@@ -312,6 +316,85 @@ Regardless of which approach you choose, you must implement the three required i
 These functions must be defined at the module level (not inside classes) to be properly imported by the training pipeline.
 
 For a more indebth look at how the architecture structure works it is recommended to consult the [Directories](#model-architecture)
+
+Below you find a example template to create your own simple model architecture.
+
+```
+"""
+Template Model Architecture for the Training Pipeline
+
+You can use this template by copying it and personalize the used object detection model or you can create your own model architecture in a seperate class and call it in the get_model function.
+
+How to use:
+- Copy this file into model_architecture/<task>/ (classification, object_detection, segmentation)
+- Rename the file to something descriptive
+- Implement your own model inside get_model()
+"""
+
+#######################################################
+#  IMPORT EXISTING MODELS
+#######################################################
+
+import torch
+from torchvision.models.detection import (
+    FasterRCNN_ResNet50_FPN_Weights,
+    fasterrcnn_resnet50_fpn,
+)
+
+#######################################################
+#  IF NEEDED IMPLEMENT YOUR OWN MODEL CLASS HERE
+#######################################################
+
+
+#######################################################
+# CALL THE MODEL IN THE PREFFERED CONFIGURATION HERE
+#######################################################
+
+def get_model(num_classes: int, pretrained: bool = True):
+    if pretrained:
+        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+        model = fasterrcnn_resnet50_fpn(weights=weights, min_size=224, max_size=512)
+    else:
+        model = fasterrcnn_resnet50_fpn(weights=None, weights_backbone=None, min_size=224, max_size=512)
+
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+    return model
+
+
+#######################################################
+# FUNCTIONS EXPECTED BY THE PIPELINE
+#######################################################
+
+def build_model(num_classes: int):
+    # "Fresh model" without Pretrained
+    return get_model(num_classes=num_classes, pretrained=False)
+
+
+def get_input_size():
+    # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
+    return 224, 224 # here set to 224, 224 to improve training time and storage
+
+
+def get_model_need():
+    return "Tensor" # either "Tensor" or "List"
+
+
+#######################################################
+# OPTIONAL: FUNCTIONALITY TEST OF MODEL
+#######################################################
+if __name__ == "__main__":
+    model = build_model(num_classes=20)
+    model.eval()
+    dummy_input = torch.randn(1, 3, 416, 416)
+    output = model(dummy_input)
+    print("fasterRCNN_001Resnet Model loaded successfully!")
+    print(f"Input size: {get_input_size()}")
+    print(f"Dummy output: {output}")
+```
+
 
 ___
 
@@ -646,80 +729,6 @@ flowchart LR
   D --> E --> I
   C --> H
   K --> I --> J
-```
-
-#### Template
-```
-"""
-Template Model Architecture for the Training Pipeline
-
-You can use this template by copying it and personalize the used object detection model or you can create your own model architecture in a seperate class and call it in the get_model function.
-
-How to use:
-- Copy this file into model_architecture/<task>/ (classification, object_detection, segmentation)
-- Rename the file to something descriptive
-- Implement your own model inside get_model()
-"""
-
-import torch
-from torchvision.models.detection import (
-    FasterRCNN_ResNet50_FPN_Weights,
-    fasterrcnn_resnet50_fpn,
-)
-
-#######################################################
-#  IMPLEMENT YOUR OWN MODEL CLASS HERE
-#######################################################
-
-
-#######################################################
-# CALL THE MODEL IN THE PREFFERED CONFIGURATION HERE
-#######################################################
-
-def get_model(num_classes: int, pretrained: bool = True):
-    if pretrained:
-        weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
-        model = fasterrcnn_resnet50_fpn(weights=weights, min_size=224, max_size=512)
-    else:
-        model = fasterrcnn_resnet50_fpn(weights=None, weights_backbone=None, min_size=224, max_size=512)
-
-    in_features = model.roi_heads.box_predictor.cls_score.in_features
-    from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-
-    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    return model
-
-
-#######################################################
-# FUNCTIONS EXPECTED BY THE PIPELINE
-#######################################################
-
-def build_model(num_classes: int):
-    # "Fresh model" without Pretrained
-    return get_model(num_classes=num_classes, pretrained=False)
-
-
-def get_input_size():
-    # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
-    return 224, 224 # here set to 224, 224 to improve training time and storage
-
-
-def get_model_need():
-    return "Tensor" # either "Tensor" or "List"
-
-
-#######################################################
-# OPTIONAL: FUNCTIONALITY TEST OF MODEL
-#######################################################
-if __name__ == "__main__":
-    model = build_model(num_classes=20)
-    model.eval()
-    dummy_input = torch.randn(1, 3, 416, 416)
-    output = model(dummy_input)
-    print("fasterRCNN_001Resnet Model loaded successfully!")
-    print(f"Input size: {get_input_size()}")
-    print(f"Dummy output: {output}")
-
 ```
 
 
