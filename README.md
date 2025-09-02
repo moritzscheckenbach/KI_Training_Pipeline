@@ -1,5 +1,8 @@
 # AI Training Pipeline MFW
 
+### Disclaimer (dev status)
+At this moment only object detection is implemented in the pipeline.
+
 ## Quick Start Guide
 
 To use the AI Pipeline you need to have the dependencies installed
