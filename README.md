@@ -1733,3 +1733,5 @@ Starts the User Interface with Streamlit.
 
 - Impelementing training files for classification and segmentation
 - Impelementing other datasets and testing the loaders (Pascal VOC)
+- Hosting the Pipeline on a server for more than one user, potentially with a task que to process the training tasks on the server as well
+- Writing a dataset-type-converter to make it more easy to convert own dataset types into each other
