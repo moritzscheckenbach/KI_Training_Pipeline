@@ -1727,3 +1727,9 @@ Starts the User Interface with Streamlit.
 **Returns:**
 
 - `bool`: True if the User Interface starts successfully, False otherwise.
+
+
+## ToDo - Roadmap
+
+- Impelementing training files for classification and segmentation
+- Impelementing other datasets and testing the loaders (Pascal VOC)
