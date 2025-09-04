@@ -42,9 +42,10 @@ RUN pip install --no-cache-dir \
     einops \
     loguru \
     ruamel.yaml \
-    streamlit
+    streamlit \
+    streamlit-autorefresh
 
-RUN sudo apt-get update
+RUN apt-get update
 
 
 # Dein kompletter Code

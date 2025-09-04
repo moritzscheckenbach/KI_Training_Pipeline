@@ -3,20 +3,20 @@
 
 import io
 import os
+import re
+import shutil
+import socket
+import subprocess
 import sys
 import time
-import re
-import subprocess
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedSeq
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
-
-import streamlit.components.v1 as components
-import shutil
-import socket
+from streamlit_autorefresh import st_autorefresh
 
 # =========================
 # Configuration Variables
@@ -26,13 +26,14 @@ DATASET_ALREADY_SPLIT = False  # Set to True if your datasets are already split 
 yaml = YAML()
 yaml.indent(mapping=2, sequence=4, offset=2)
 
+
 # =========================
 # Helpers
 # =========================
 def quote_specific_strings(data):
     """
     Only set specific strings in quotation marks and specific arrays as flow-style
-    
+
     Parameters
     ----------
     data : dict or list
@@ -471,6 +472,7 @@ if mode == "Transfer Learning: Self-trained Model":
         backbone_lr_multiplier = st.number_input("Backbone LR Multiplier", min_value=0.001, max_value=10.0, value=0.1, format="%.3f")
         head_lr_multiplier = st.number_input("Head LR Multiplier", min_value=0.001, max_value=10.0, value=1.0, format="%.3f")
 
+
 # =========================
 # Config Generation
 # =========================
@@ -495,6 +497,7 @@ def _get(dictionary, key, default, cast=lambda x: x):
         The value from the dictionary or the default value.
     """
     return cast(dictionary.get(key, default))
+
 
 DEFAULTS = {
     "step_size": 10,
@@ -558,14 +561,16 @@ config = {
             "head_name": head_name,
             "backbone_name": backbone_name,
             "freezing": {
-                "enabled": bool('freezing_enabled' in locals() and freezing_enabled) if mode == "Transfer Learning: Self-trained Model" else False,
-                "strategy": (freezing_strategy if 'freezing_strategy' in locals() and freezing_enabled else "freeze_all_except_head") if mode == "Transfer Learning: Self-trained Model" else "freeze_all_except_head",
-                "freeze_early_layers": {
-                    "freeze_until_layer": int(freeze_until_layer) if 'freeze_until_layer' in locals() and freezing_enabled else 6
-                },
+                "enabled": bool("freezing_enabled" in locals() and freezing_enabled) if mode == "Transfer Learning: Self-trained Model" else False,
+                "strategy": (
+                    (freezing_strategy if "freezing_strategy" in locals() and freezing_enabled else "freeze_all_except_head")
+                    if mode == "Transfer Learning: Self-trained Model"
+                    else "freeze_all_except_head"
+                ),
+                "freeze_early_layers": {"freeze_until_layer": int(freeze_until_layer) if "freeze_until_layer" in locals() and freezing_enabled else 6},
                 "custom": {
-                    "freeze_layers": (freeze_layers if 'freeze_layers' in locals() and freezing_enabled else ["backbone.layer1", "backbone.layer2"]),
-                    "unfreeze_layers": (unfreeze_layers if 'unfreeze_layers' in locals() and freezing_enabled else ["detection_head", "backbone.layer4"]),
+                    "freeze_layers": (freeze_layers if "freeze_layers" in locals() and freezing_enabled else ["backbone.layer1", "backbone.layer2"]),
+                    "unfreeze_layers": (unfreeze_layers if "unfreeze_layers" in locals() and freezing_enabled else ["detection_head", "backbone.layer4"]),
                 },
             },
             "lr": {
@@ -636,30 +641,59 @@ if "log_path" in st.session_state:
     with st.expander("Training logs (tail)", expanded=True):
         st.caption(str(lp.resolve()))
 
-        # Jede Sekunde neu laden
-        st_autorefresh = st.experimental_rerun
-        st_autorefresh(interval=1000, limit=None, key="logrefresh")
+        # Auto-Refresh der Logs:
+        # Versuche optional das Paket 'streamlit-autorefresh' zu nutzen.
+        # Fallback: manueller Refresh-Button.
+        try:
+            st_autorefresh(interval=1000, limit=None, key="logrefresh")  # alle 1s
+        except Exception:
+            col_refresh, _ = st.columns([1, 5])
+            with col_refresh:
+                if st.button("🔄 Refresh logs"):
+                    # Streamlit >=1.32: st.rerun; ältere Versionen: experimental_rerun
+                    if hasattr(st, "rerun"):
+                        st.rerun()
+                    elif hasattr(st, "experimental_rerun"):
+                        st.experimental_rerun()
 
         st.code(_tail_file(lp), language="bash")
 
+
 # =========================
-# TensorBoard Integration  
+# TensorBoard Integration
 # =========================
 # -------- TensorBoard Helpers --------
 def _find_trained_tb_dirs(task_root: Path) -> list[tuple[str, str]]:
     """
     Scannt trained_models/<task>/*/tensorboard und gibt [(Label, Logdir), ...] zurück.
-    Label ist 'experiment_name  (relativer Pfad)'.
+    Robust gegen Pfade außerhalb des aktuellen Arbeitsverzeichnisses.
     """
     options = []
     if not task_root.exists():
         return options
+
+    cwd_abs = Path.cwd().resolve()
+
+    def _safe_rel(p: Path) -> str:
+        try:
+            return p.resolve().relative_to(cwd_abs).as_posix()
+        except Exception:
+            # Fallback: relpath oder absolut
+            try:
+                import os
+
+                return os.path.relpath(p.resolve(), cwd_abs)
+            except Exception:
+                return p.resolve().as_posix()
+
     for exp in sorted(task_root.iterdir()):
         tb_dir = exp / "tensorboard"
         if tb_dir.is_dir():
-            label = f"{exp.name}  ({tb_dir.relative_to(Path.cwd())})"
-            options.append((label, str(tb_dir)))
+            rel = _safe_rel(tb_dir)
+            label = f"{exp.name}  ({rel})"
+            options.append((label, str(tb_dir.resolve())))
     return options
+
 
 def _get_free_port(preferred: int = 6006) -> int:
     # nimmt preferred, falls frei – sonst sucht er einen freien OS-Port
@@ -671,6 +705,7 @@ def _get_free_port(preferred: int = 6006) -> int:
                 return True
             except OSError:
                 return False
+
     if port_free(preferred):
         return preferred
     # irgendeinen freien Port nehmen
@@ -678,9 +713,11 @@ def _get_free_port(preferred: int = 6006) -> int:
         s.bind(("0.0.0.0", 0))
         return s.getsockname()[1]
 
+
 def _kill_process(pid: int):
     try:
         import psutil  # optional nice kill
+
         p = psutil.Process(pid)
         p.terminate()
     except Exception:
@@ -691,6 +728,7 @@ def _kill_process(pid: int):
                 subprocess.run(["kill", "-9", str(pid)], check=False)
         except Exception:
             pass
+
 
 # ====== UI: TensorBoard Steuerung ======
 st.markdown("---")
@@ -718,7 +756,7 @@ else:
     if "tb_logdir" not in st.session_state:
         st.session_state["tb_logdir"] = None
 
-    colA, colB, colC = st.columns([1,1,2])
+    colA, colB, colC = st.columns([1, 1, 2])
     with colA:
         if st.button("TensorBoard starten", type="primary"):
             # ggf. alten Prozess beenden
@@ -728,10 +766,7 @@ else:
 
             port = _get_free_port(6006)
             # --bind_all ist wichtig im Docker, damit der Host/iframe zugreifen kann
-            proc = subprocess.Popen(
-                ["tensorboard", "--logdir", sel_logdir, "--port", str(port), "--bind_all"],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=Path.cwd()
-            )
+            proc = subprocess.Popen(["tensorboard", "--logdir", sel_logdir, "--port", str(port), "--bind_all"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=Path.cwd())
             st.session_state["tb_pid"] = proc.pid
             st.session_state["tb_port"] = port
             st.session_state["tb_logdir"] = sel_logdir

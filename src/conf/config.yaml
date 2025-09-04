@@ -1,5 +1,5 @@
 training:
-  epochs: 3
+  epochs: 5
   batch_size: 16
   learning_rate: 0.001
   early_stopping_patience: 10
@@ -27,7 +27,7 @@ optimizer:
   sgd:
     momentum: 0.9
 augmentation:
-  file: "augmentation_1"
+  file: "no_augmentation"
 model:
   type: "object_detection"
   file: "FastRCNN_001"

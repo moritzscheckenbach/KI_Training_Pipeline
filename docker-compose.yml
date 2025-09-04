@@ -37,5 +37,5 @@ services:
       - "8502:8501"   # Streamlit Evaluation UI (evaluation.py)
     shm_size: "8g"
     working_dir: /app/src
-    command: python evaluation.py
+    command: streamlit run evaluation.py
 
