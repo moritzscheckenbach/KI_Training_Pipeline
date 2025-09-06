@@ -46,28 +46,56 @@ If your on Linux it is recommended to aditionally install one of the following t
 - gnome-terminal
 
 ## Docker
+This project ships a CUDA-ready image and a split Docker Compose setup with separate services for training and evaluation. Below is everything you need to build and run it.
 
-Build image:
+**Prerequisites**
+- Docker and Docker Compose (v2).
 
+- (Optional, recommended) NVIDIA GPU with the NVIDIA Container Toolkit installed so the     container can access CUDA.
+
+Build the image:
 ```
-docker build -t ki-pipeline:cuda 
+docker build -t ki-pipeline:cuda .
 ```
-Docker Compose Build:
+
+Or Docker Compose Build:
 ```
-docker compose build
+docker build it with compose:
 ```
-Start training:
+
+There are two compose services
+
+- Traing :
 ```
 docker compose up ki_pipeline_train
 ```
-Start evaluation:
+
+- Evaluation:
 ```
 docker compose up ki_pipeline_eval
 ```
-Stop:
+To Stop the container:
 ```
 docker compose down
 ```
+**Useful tips**
+- Follow logs
+
+```
+docker compose logs -f ki_pipeline_train
+docker compose logs -f ki_pipeline_eval
+```
+- Rebuild after changing dependencies
+
+```
+docker compose build --no-cache
+```
+
+- GPU access :
+    - Ensure the NVIDIA drivers and Container Toolkit are installed on the host. If your GPU isn’t visible inside the container, verify that the Compose file enables the NVIDIA runtime (or --gpus all is used) and that the host drivers are correctly installed.
+
+- Volumes & outputs:
+    - The Compose file mounts your source/data/run folders so artifacts (checkpoints, logs, TensorBoard runs) persist on the host. Open the mapped ports (e.g., Streamlit UI on 8501, TensorBoard on 6006) if they are exposed in your docker-compose.yml.
 
 ## Start Training
 

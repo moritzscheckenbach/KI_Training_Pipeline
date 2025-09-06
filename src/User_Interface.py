@@ -288,7 +288,7 @@ augmentations_root = Path("augmentations")
 # Task Selection
 # =========================
 st.subheader("1. Select Task")
-task_options = ["classification", "object_detection", "segmentation"]
+task_options = ["object_detection", "classification", "segmentation"]
 task = st.selectbox("Task", task_options, index=0)
 
 # =========================
@@ -612,7 +612,7 @@ with col1:
             try:
                 st.info(f"Starting training for {task} ...")
 
-                # --- Subprozess + Logfile ---
+                # --- Subprocess + logfile ---
                 log_path = Path("runs/ui_training.log")
                 # write line-buffered; overwrite existing logs
                 log_f = log_path.open("w", encoding="utf-8", buffering=1)
@@ -641,16 +641,16 @@ if "log_path" in st.session_state:
     with st.expander("Training logs (tail)", expanded=True):
         st.caption(str(lp.resolve()))
 
-        # Auto-Refresh der Logs:
-        # Versuche optional das Paket 'streamlit-autorefresh' zu nutzen.
-        # Fallback: manueller Refresh-Button.
+        # Auto-refresh the logs:
+        # Optionally try to use the 'streamlit-autorefresh' package.
+        # Fallback: manual refresh button.
         try:
-            st_autorefresh(interval=1000, limit=None, key="logrefresh")  # alle 1s
+            st_autorefresh(interval=1000, limit=None, key="logrefresh")  # every 1s
         except Exception:
             col_refresh, _ = st.columns([1, 5])
             with col_refresh:
                 if st.button("🔄 Refresh logs"):
-                    # Streamlit >=1.32: st.rerun; ältere Versionen: experimental_rerun
+                    # Streamlit >=1.32: st.rerun; older versions: experimental_rerun
                     if hasattr(st, "rerun"):
                         st.rerun()
                     elif hasattr(st, "experimental_rerun"):
@@ -678,7 +678,7 @@ def _find_trained_tb_dirs(task_root: Path) -> list[tuple[str, str]]:
         try:
             return p.resolve().relative_to(cwd_abs).as_posix()
         except Exception:
-            # Fallback: relpath oder absolut
+            # Fallback: relpath or absolute
             try:
                 import os
 
@@ -696,7 +696,7 @@ def _find_trained_tb_dirs(task_root: Path) -> list[tuple[str, str]]:
 
 
 def _get_free_port(preferred: int = 6006) -> int:
-    # nimmt preferred, falls frei – sonst sucht er einen freien OS-Port
+    # use preferred if free – otherwise search for a free OS port
     def port_free(p: int) -> bool:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -708,7 +708,7 @@ def _get_free_port(preferred: int = 6006) -> int:
 
     if port_free(preferred):
         return preferred
-    # irgendeinen freien Port nehmen
+    # take any free port
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("0.0.0.0", 0))
         return s.getsockname()[1]
@@ -730,12 +730,12 @@ def _kill_process(pid: int):
             pass
 
 
-# ====== UI: TensorBoard Steuerung ======
+# ====== UI: TensorBoard Control ======
 st.markdown("---")
 st.subheader("TensorBoard")
 
-# 1) Experimente automatisch listen (pro ausgewähltem Task)
-task_root = Path("trained_models") / task  # 'task' hast du oben schon (classification/object_detection/segmentation)
+# 1) Automatically list experiments (for the selected task)
+task_root = Path("trained_models") / task  # 'task' is defined above (classification/object_detection/segmentation)
 tb_choices = _find_trained_tb_dirs(task_root)
 
 if not shutil.which("tensorboard"):
@@ -748,7 +748,7 @@ else:
     sel_label = st.selectbox("Wähle Experiment (Logdir):", labels, index=default_idx)
     sel_logdir = dict(tb_choices)[sel_label]
 
-    # Port merken/steuern
+    # Persist/control port
     if "tb_pid" not in st.session_state:
         st.session_state["tb_pid"] = None
     if "tb_port" not in st.session_state:
@@ -759,13 +759,13 @@ else:
     colA, colB, colC = st.columns([1, 1, 2])
     with colA:
         if st.button("TensorBoard starten", type="primary"):
-            # ggf. alten Prozess beenden
+            # optionally terminate previous process
             if st.session_state["tb_pid"]:
                 _kill_process(st.session_state["tb_pid"])
                 st.session_state["tb_pid"] = None
 
             port = _get_free_port(6006)
-            # --bind_all ist wichtig im Docker, damit der Host/iframe zugreifen kann
+            # --bind_all is important in Docker so the host/iframe can access it
             proc = subprocess.Popen(["tensorboard", "--logdir", sel_logdir, "--port", str(port), "--bind_all"], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=Path.cwd())
             st.session_state["tb_pid"] = proc.pid
             st.session_state["tb_port"] = port
@@ -785,6 +785,6 @@ else:
             st.caption(f"Logdir: {st.session_state['tb_logdir']}")
             st.caption(f"Port: {st.session_state['tb_port']}")
 
-    # 2) iFrame einbetten, wenn läuft
+    # 2) Embed iFrame when running
     if st.session_state.get("tb_pid") and st.session_state.get("tb_port"):
         components.iframe(f"http://localhost:{st.session_state['tb_port']}", height=900, scrolling=True)
