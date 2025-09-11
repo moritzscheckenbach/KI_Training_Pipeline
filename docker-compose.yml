@@ -8,12 +8,13 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TZ=Europe/Berlin
     volumes:
       - ./src:/app/src
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     ports:
-      - "6006:6006"   # TensorBoard für Trainingsläufe
+      - "6006:6006"   # TensorBoard for Training
       - "8501:8501"   # Streamlit Training UI (User_Interface.py)
     shm_size: "8g"
     working_dir: /app/src
@@ -28,12 +29,13 @@ services:
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - TZ=Europe/Berlin
     volumes:
       - ./src:/app/src
       - /etc/localtime:/etc/localtime:ro
       - /etc/timezone:/etc/timezone:ro
     ports:
-      - "6007:6006"   # TensorBoard für Evaluation (anderer Host-Port, damit keine Kollision)
+      - "6007:6006"   # TensorBoard for Evaluation (different host port to avoid collision)
       - "8502:8501"   # Streamlit Evaluation UI (evaluation.py)
     shm_size: "8g"
     working_dir: /app/src

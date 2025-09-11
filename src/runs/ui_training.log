@@ -1,6 +1,30 @@
-Traceback (most recent call last):
-  File "/opt/conda/lib/python3.11/pathlib.py", line 1116, in mkdir
-    os.mkdir(self, mode)
-PermissionError: [Errno 13] Permission denied: 'outputs/2025-09-11/18-12-31'
-
-Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m🆕 Using Fresh Training Mode[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m🚀 Starting experiment: 20250911_172046_FastRCNN_001[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📁 Experiment directory: trained_models/object_detection/20250911_172046_FastRCNN_001[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📝 Log file: trained_models/object_detection/20250911_172046_FastRCNN_001/training.log[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m✅ Fresh model loaded successfully[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📐 Model input size: 224x224[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m🔄 Using augmentation: augment_rotate_flip_shear_translate_brightness[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📊 Loading Type_COCO dataset (auto_split=False)[0m
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+loading annotations into memory...
+Done (t=0.00s)
+creating index...
+index created!
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📈 Dataset loaded - Train: 8, Val: 14, Test: 63[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m🖥️ Using device: cpu[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m🔧 Using optimizer: Adam[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📅 Using scheduler: StepLR[0m
+[32m2025-09-11 17:20:46[0m | [1mINFO    [0m | [1m📊 TensorBoard logs: trained_models/object_detection/20250911_172046_FastRCNN_001/tensorboard[0m
+[32m2025-09-11 17:20:48[0m | [33m[1mWARNING [0m | [33m[1mSkipping add_graph: model output is not a pure tensor/list/tuple/dict of tensors (detection model).[0m
+[32m2025-09-11 17:20:48[0m | [1mINFO    [0m | [1m🎯 Starting training loop for 1 epochs[0m
+[32m2025-09-11 17:20:48[0m | [1mINFO    [0m | [1m⚙️ Batch size: 16, Learning rate: 0.001[0m
+[32m2025-09-11 17:20:48[0m | [1mINFO    [0m | [1m⏰ Early stopping patience: 10[0m
+[32m2025-09-11 17:20:48[0m | [1mINFO    [0m | [1m📈 Epoch 1/1[0m
