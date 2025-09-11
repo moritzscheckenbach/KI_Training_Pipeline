@@ -1,7 +1,10 @@
+import os
 import shutil
+import socket
 import subprocess
 import sys
 from pathlib import Path
+
 import streamlit as st
 
 # =========================
@@ -54,6 +57,52 @@ def tensorboard_args(logdir_spec: str, host: str = "0.0.0.0", port: int = 6006) 
     ]
 
 
+def resolve_access_url(port: int) -> list[str]:
+    """
+    Liefert mögliche URLs:
+    1. TENSORBOARD_HOST (falls gesetzt)
+    2. Erkannte Container/Host-IP
+    3. localhost (Fallback)
+    """
+    urls = []
+    env_host = os.environ.get("TENSORBOARD_HOST")
+    if env_host:
+        urls.append(f"http://{env_host}:{port}")
+
+    # Versuch: Hostname -> IP
+    try:
+        host_ip = socket.gethostbyname(socket.gethostname())
+        if host_ip and not host_ip.startswith("127."):
+            urls.append(f"http://{host_ip}:{port}")
+    except Exception:
+        pass
+
+    # Versuch: Routing (stabiler in Docker)
+    if len(urls) < 2:
+        try:
+            route_ip = subprocess.run(
+                ["sh", "-c", "ip route get 1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i==\"src\") {print $(i+1); exit}}'"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            ).stdout.strip()
+            if route_ip and route_ip not in ("127.0.0.1", "0.0.0.0") and f"http://{route_ip}:{port}" not in urls:
+                urls.append(f"http://{route_ip}:{port}")
+        except Exception:
+            pass
+
+    # Fallback immer hinzufügen
+    urls.append(f"http://localhost:{port}")
+    # Deduplizieren, Reihenfolge bewahren
+    seen = set()
+    unique = []
+    for u in urls:
+        if u not in seen:
+            unique.append(u)
+            seen.add(u)
+    return unique
+
+
 # =========================
 # UI
 # =========================
@@ -87,9 +136,15 @@ else:
 
     if st.button("Start Evaluation"):
         try:
-            # Direkt im Container starten
             process = subprocess.Popen(cmd_list, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-            st.success(f"TensorBoard started (PID: {process.pid}).")
-            st.info(f"Open in browser: http://localhost:{port}")
+            st.success(f"TensorBoard gestartet (PID: {process.pid}).")
+
+            urls = resolve_access_url(int(port))
+            st.markdown("Mögliche Aufruf-URLs:")
+            for u in urls:
+                st.info(f"{u}")
+                st.markdown(f"[Öffnen]({u})")
+            if len(urls) > 1:
+                st.caption("Hinweis: In Dev-Containern mit Port-Forwarding funktioniert oft nur localhost.")
         except Exception as e:
             st.error(f"Error starting TensorBoard: {e}")

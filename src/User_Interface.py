@@ -291,6 +291,9 @@ st.subheader("1. Select Task")
 task_options = ["object_detection", "classification", "segmentation"]
 task = st.selectbox("Task", task_options, index=0)
 
+if task != "object_detection":
+    st.info("not yet implemented")
+    st.stop()
 # =========================
 # Dataset Selection
 # =========================
@@ -360,8 +363,11 @@ if mode == "Training from Architecture":
     st.subheader("5. Select Architecture")
     architecture_root = Path("model_architecture") / task
     architecture_options = list_files(architecture_root, ".py")
+    # Exclude Transferlearning.py (unabhängig von Groß/Kleinschreibung)
+    architecture_options = [f for f in architecture_options if f.lower() != "transferlearning"]
+
     if not architecture_options:
-        st.info(f"No architecture files found in 'model_architecture/{task}/'.")
+        st.info(f"No selectable architecture files found in 'model_architecture/{task}/' (Transferlearning excluded).")
         architecture = None
     else:
         architecture = st.selectbox("Architecture", architecture_options)
@@ -770,7 +776,25 @@ else:
             st.session_state["tb_pid"] = proc.pid
             st.session_state["tb_port"] = port
             st.session_state["tb_logdir"] = sel_logdir
-            st.success(f"TensorBoard läuft auf http://localhost:{port}  (PID {proc.pid})")
+            # When running in Docker, we need to use the container's host IP instead of localhost
+            host = "localhost"
+            if _running_in_docker():
+                try:
+                    # Get container IP that's accessible from outside
+                    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                    s.connect(("8.8.8.8", 80))  # Doesn't actually send packets
+                    host = s.getsockname()[0]
+                    s.close()
+                except Exception:
+                    # Fallback if we can't get the IP
+                    host = "0.0.0.0"
+
+            # Store the success message in session state
+            st.session_state["tb_success_msg"] = f"TensorBoard läuft auf http://{host}:{port}  (PID {proc.pid})"
+
+    # Display the persistent success message if it exists
+    if "tb_success_msg" in st.session_state and st.session_state.get("tb_pid"):
+        st.success(st.session_state["tb_success_msg"])
 
     with colB:
         if st.session_state.get("tb_pid") and st.button("Stop"):
@@ -785,6 +809,6 @@ else:
             st.caption(f"Logdir: {st.session_state['tb_logdir']}")
             st.caption(f"Port: {st.session_state['tb_port']}")
 
-    # 2) Embed iFrame when running
-    if st.session_state.get("tb_pid") and st.session_state.get("tb_port"):
-        components.iframe(f"http://localhost:{st.session_state['tb_port']}", height=900, scrolling=True)
+    # # 2) Embed iFrame when running
+    # if st.session_state.get("tb_pid") and st.session_state.get("tb_port"):
+    #     components.iframe(f"http://localhost:{st.session_state['tb_port']}", height=900, scrolling=True)

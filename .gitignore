@@ -1,6 +1,7 @@
 # Training outputs
 src/trained_models/
 src/outputs/
+src/runs/
 
 # Python cache files
 __pycache__/
