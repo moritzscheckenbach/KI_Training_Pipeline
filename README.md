@@ -200,6 +200,8 @@ To add one of your own datasets you first need to know of which structure type y
 
 The datastructure is simple and structured by task and type of the data.
 
+**Note** that you can add already split Datasets (train/test/valid) or you can add a not yet split dataset (dataset). Make sure to follow the folder-system below so the pipeline recognises whether your dataset is already split, or has to be split automatically.
+
 ```
 src/datasets/{task}/{type}/...
 ```
