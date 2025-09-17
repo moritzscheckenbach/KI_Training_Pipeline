@@ -404,7 +404,7 @@ def build_model(num_classes: int):
 
 
 def get_input_size():
-    # Input Size für Faster R-CNN ist variabel, aber typischerweise 800x800
+    # Input size for faster R-CNN is variable, typically 800x800
     return 224, 224 # here set to 224, 224 to improve training time and storage
 
 
